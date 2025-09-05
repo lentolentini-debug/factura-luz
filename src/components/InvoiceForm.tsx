@@ -7,13 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Upload, X } from 'lucide-react';
+import { CalendarIcon, Upload, X, Eye, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { useInvoices } from '@/hooks/useInvoices';
 import { toast } from 'sonner';
+import { OCRService } from '@/lib/ocr';
 
 interface InvoiceFormProps {
   onClose: () => void;
@@ -38,8 +39,11 @@ export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
   
   const [loading, setLoading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [ocrData, setOcrData] = useState<any>(null);
+  const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [showExtractedData, setShowExtractedData] = useState(false);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
       if (selectedFile.size > 10 * 1024 * 1024) {
@@ -54,11 +58,65 @@ export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
       }
       
       setFile(selectedFile);
+      
+      // Procesar OCR automáticamente
+      setIsProcessingOCR(true);
+      try {
+        const base64 = await OCRService.processFileToBase64(selectedFile);
+        console.log('Processing file with OCR...');
+        
+        const extractedData = await OCRService.extractInvoiceData(base64);
+        console.log('OCR extracted data:', extractedData);
+        
+        setOcrData(extractedData);
+        
+        // Auto-rellenar campos con datos extraídos
+        if (extractedData.amounts?.total) {
+          setFormData(prev => ({ ...prev, amount_total: extractedData.amounts.total.toString() }));
+        }
+        
+        if (extractedData.issue_date) {
+          setFormData(prev => ({ ...prev, issue_date: new Date(extractedData.issue_date) }));
+        }
+        
+        if (extractedData.due_date) {
+          setFormData(prev => ({ ...prev, due_date: new Date(extractedData.due_date) }));
+        }
+        
+        if (extractedData.invoice_number) {
+          setFormData(prev => ({ ...prev, invoice_number: extractedData.invoice_number }));
+        }
+        
+        if (extractedData.amounts?.net) {
+          setFormData(prev => ({ ...prev, net_amount: extractedData.amounts.net.toString() }));
+        }
+        
+        if (extractedData.amounts?.taxes?.length > 0) {
+          const totalTax = extractedData.amounts.taxes.reduce((sum: number, tax: any) => sum + tax.amount, 0);
+          setFormData(prev => ({ ...prev, tax_amount: totalTax.toString() }));
+        }
+        
+        setShowExtractedData(true);
+        
+        if (extractedData.needs_review) {
+          toast.warning('Algunos datos requieren revisión manual. Por favor verifica la información extraída.');
+        } else {
+          toast.success('Datos extraídos automáticamente de la factura');
+        }
+        
+      } catch (error) {
+        console.error('Error processing OCR:', error);
+        toast.error('Error al procesar la factura. Completa los datos manualmente.');
+      } finally {
+        setIsProcessingOCR(false);
+      }
     }
   };
 
   const removeFile = () => {
     setFile(null);
+    setOcrData(null);
+    setShowExtractedData(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,6 +197,55 @@ export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
               </div>
             )}
           </div>
+          
+          {/* Procesando OCR */}
+          {isProcessingOCR && (
+            <div className="flex items-center justify-center p-4 bg-blue-50 text-blue-700 rounded-lg">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-700 mr-2"></div>
+              Procesando factura con OCR...
+            </div>
+          )}
+          
+          {/* Datos extraídos */}
+          {showExtractedData && ocrData && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-medium text-green-800 flex items-center">
+                  <Eye className="w-4 h-4 mr-2" />
+                  Datos Extraídos
+                </h3>
+                {ocrData.needs_review && (
+                  <div className="flex items-center text-amber-600">
+                    <AlertTriangle className="w-4 h-4 mr-1" />
+                    <span className="text-xs">Requiere revisión</span>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                {ocrData.supplier?.name && (
+                  <div><strong>Proveedor:</strong> {ocrData.supplier.name}</div>
+                )}
+                {ocrData.invoice_number && (
+                  <div><strong>Número:</strong> {ocrData.invoice_number}</div>
+                )}
+                {ocrData.issue_date && (
+                  <div><strong>Emisión:</strong> {ocrData.issue_date}</div>
+                )}
+                {ocrData.due_date && (
+                  <div><strong>Vencimiento:</strong> {ocrData.due_date}</div>
+                )}
+                {ocrData.amounts?.total && (
+                  <div><strong>Total:</strong> ${ocrData.amounts.total.toLocaleString('es-AR')}</div>
+                )}
+                {ocrData.amounts?.net && (
+                  <div><strong>Neto:</strong> ${ocrData.amounts.net.toLocaleString('es-AR')}</div>
+                )}
+              </div>
+              <div className="mt-2 text-xs text-green-600">
+                Confianza OCR: {Math.round((ocrData.ocr_confidence || 0) * 100)}%
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
