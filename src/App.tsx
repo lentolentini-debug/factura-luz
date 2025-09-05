@@ -10,6 +10,7 @@ import { Facturas } from "./pages/Facturas";
 import { Proveedores } from "./pages/Proveedores";
 import { CargarFactura } from "./pages/CargarFactura";
 import { Pagos } from "./pages/Pagos";
+import { Configuracion } from "./pages/Configuracion";
 import { Login } from "./pages/Login";
 import { Chat } from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -102,7 +103,7 @@ const App = () => (
             } />
             <Route path="/configuracion" element={
               <ProtectedRoute>
-                <Dashboard />
+                <Configuracion />
               </ProtectedRoute>
             } />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
