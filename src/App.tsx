@@ -10,7 +10,14 @@ const App = () => {
   // Función de login simple
   const handleLogin = async (e) => {
     e.preventDefault();
+    
+    if (!email || !password) {
+      alert('Por favor ingresa email y contraseña');
+      return;
+    }
+
     setLoading(true);
+    console.log('🔐 Intentando login con:', email);
     
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -18,14 +25,19 @@ const App = () => {
         password,
       });
       
+      console.log('🔐 Resultado del login:', { data, error });
+      
       if (error) {
-        alert('Error: ' + error.message);
+        console.error('❌ Error de login:', error);
+        alert('Error de login: ' + error.message);
       } else {
+        console.log('✅ Login exitoso');
         setUser(data.user);
         alert('¡Login exitoso!');
       }
     } catch (error) {
-      alert('Error: ' + error.message);
+      console.error('❌ Error inesperado:', error);
+      alert('Error inesperado: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -33,7 +45,18 @@ const App = () => {
 
   // Función de registro simple
   const handleSignup = async () => {
+    if (!email || !password) {
+      alert('Por favor ingresa email y contraseña');
+      return;
+    }
+
+    if (password.length < 6) {
+      alert('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
     setLoading(true);
+    console.log('🔐 Intentando crear cuenta con:', email);
     
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -44,13 +67,18 @@ const App = () => {
         }
       });
       
+      console.log('📧 Resultado del registro:', { data, error });
+      
       if (error) {
-        alert('Error: ' + error.message);
+        console.error('❌ Error de registro:', error);
+        alert('Error al crear cuenta: ' + error.message);
       } else {
-        alert('¡Cuenta creada! Revisa tu email para confirmar.');
+        console.log('✅ Cuenta creada exitosamente');
+        alert('¡Cuenta creada! Revisa tu email para confirmar. Si no recibes el email, puedes intentar iniciar sesión directamente.');
       }
     } catch (error) {
-      alert('Error: ' + error.message);
+      console.error('❌ Error inesperado:', error);
+      alert('Error inesperado: ' + error.message);
     } finally {
       setLoading(false);
     }
