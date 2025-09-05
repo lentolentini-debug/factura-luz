@@ -1,0 +1,2 @@
+-- Verificar la configuración actual de autenticación
+-- Esto es solo para verificar, pero la configuración real se debe cambiar en el dashboard
