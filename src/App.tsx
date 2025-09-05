@@ -8,6 +8,8 @@ import { useAuth } from "./hooks/useAuth";
 import { Dashboard } from "./pages/Dashboard";
 import { Facturas } from "./pages/Facturas";
 import { Proveedores } from "./pages/Proveedores";
+import { CargarFactura } from "./pages/CargarFactura";
+import { Pagos } from "./pages/Pagos";
 import { Login } from "./pages/Login";
 import { Chat } from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -80,12 +82,12 @@ const App = () => (
             } />
             <Route path="/pagos" element={
               <ProtectedRoute>
-                <Dashboard />
+                <Pagos />
               </ProtectedRoute>
             } />
             <Route path="/cargar" element={
               <ProtectedRoute>
-                <Dashboard />
+                <CargarFactura />
               </ProtectedRoute>
             } />
             <Route path="/proveedores" element={

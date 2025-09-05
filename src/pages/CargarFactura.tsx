@@ -1,0 +1,374 @@
+import { useState, useRef } from 'react';
+import { Layout } from '@/components/Layout';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Upload, FileText, Image, Loader2, CheckCircle, AlertTriangle, Edit3 } from 'lucide-react';
+import { toast } from 'sonner';
+import { OCRService } from '@/lib/ocr';
+import { useSuppliers } from '@/hooks/useSuppliers';
+import { useInvoices } from '@/hooks/useInvoices';
+import { formatCurrency } from '@/lib/formatters';
+
+export const CargarFactura = () => {
+  const { suppliers, findOrCreateSupplier } = useSuppliers();
+  const { createInvoice } = useInvoices();
+  
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [ocrData, setOcrData] = useState<any>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = async (selectedFile: File) => {
+    if (!selectedFile) return;
+
+    // Validar tipo de archivo
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    if (!allowedTypes.includes(selectedFile.type)) {
+      toast.error('Solo se permiten archivos PDF, JPG y PNG');
+      return;
+    }
+
+    // Validar tamaño (max 10MB)
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      toast.error('El archivo no puede ser mayor a 10MB');
+      return;
+    }
+
+    setFile(selectedFile);
+
+    // Crear preview para imágenes
+    if (selectedFile.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => setPreview(e.target?.result as string);
+      reader.readAsDataURL(selectedFile);
+    } else {
+      setPreview(null);
+    }
+
+    // Procesar automáticamente
+    await processFile(selectedFile);
+  };
+
+  const processFile = async (file: File) => {
+    setIsProcessing(true);
+    
+    try {
+      toast.info('Procesando archivo con OCR...');
+      
+      const base64 = await OCRService.processFileToBase64(file);
+      const extractedData = await OCRService.extractInvoiceData(base64, apiKey || undefined);
+      
+      setOcrData(extractedData);
+      
+      if (extractedData.ocr_confidence >= 0.8) {
+        toast.success('Datos extraídos con alta confianza');
+      } else {
+        toast.warning('Datos extraídos con baja confianza. Revisa antes de guardar.');
+        setEditMode(true);
+      }
+    } catch (error) {
+      console.error('Error processing file:', error);
+      toast.error('Error al procesar el archivo');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveInvoice = async () => {
+    if (!ocrData) return;
+
+    try {
+      // Buscar o crear proveedor
+      let supplier;
+      if (ocrData.supplier_name) {
+        supplier = await findOrCreateSupplier(ocrData.supplier_name);
+      } else {
+        toast.error('Debe especificar un proveedor');
+        return;
+      }
+
+      // Crear factura
+      const invoiceData = {
+        supplier_id: supplier.id,
+        invoice_number: ocrData.invoice_number || `FC-${Date.now()}`,
+        issue_date: ocrData.issue_date || new Date().toISOString().split('T')[0],
+        due_date: ocrData.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        amount_total: ocrData.amount_total || 0,
+        currency: ocrData.currency || 'ARS',
+        net_amount: ocrData.net_amount,
+        tax_amount: ocrData.tax_amount,
+        ocr_confidence: ocrData.ocr_confidence,
+        notes: ocrData.ocr_confidence < 0.8 ? 'Procesado con OCR - Revisar datos' : undefined,
+        needs_review: ocrData.ocr_confidence < 0.8,
+      };
+
+      await createInvoice(invoiceData);
+      
+      toast.success('Factura creada exitosamente');
+      
+      // Limpiar formulario
+      setFile(null);
+      setPreview(null);
+      setOcrData(null);
+      setEditMode(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      toast.error('Error al guardar la factura');
+    }
+  };
+
+  const updateOcrData = (field: string, value: any) => {
+    setOcrData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  return (
+    <Layout>
+      <div className="p-8 space-y-6">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Cargar Factura</h1>
+          <p className="text-muted-foreground">
+            Sube una imagen o PDF de la factura para extraer datos automáticamente
+          </p>
+        </div>
+
+        {/* Configuración de API */}
+        <Card className="p-4">
+          <div className="space-y-2">
+            <Label htmlFor="apiKey">Google Cloud Vision API Key (opcional)</Label>
+            <Input
+              id="apiKey"
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Tu API key para OCR mejorado..."
+              className="max-w-md"
+            />
+            <p className="text-xs text-muted-foreground">
+              Sin API key se usa procesamiento local con menor precisión
+            </p>
+          </div>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Upload Area */}
+          <Card className="p-6">
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">1. Subir Archivo</h3>
+              
+              {!file ? (
+                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
+                  <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <h4 className="text-lg font-medium mb-2">Arrastra tu factura aquí</h4>
+                  <p className="text-muted-foreground mb-4">
+                    o haz clic para seleccionar un archivo
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
+                    className="hidden"
+                    id="file-upload"
+                  />
+                  <Label htmlFor="file-upload" className="cursor-pointer">
+                    <Button variant="outline">
+                      Seleccionar archivo
+                    </Button>
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    PDF, JPG, PNG hasta 10MB
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-secondary rounded-lg">
+                    <div className="flex items-center gap-3">
+                      {file.type.startsWith('image/') ? (
+                        <Image className="w-6 h-6 text-primary" />
+                      ) : (
+                        <FileText className="w-6 h-6 text-primary" />
+                      )}
+                      <div>
+                        <p className="font-medium">{file.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        setFile(null);
+                        setPreview(null);
+                        setOcrData(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                    >
+                      Cambiar
+                    </Button>
+                  </div>
+
+                  {preview && (
+                    <div className="border rounded-lg overflow-hidden">
+                      <img 
+                        src={preview} 
+                        alt="Preview" 
+                        className="w-full h-48 object-contain bg-gray-50"
+                      />
+                    </div>
+                  )}
+
+                  {isProcessing && (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                      <span>Procesando con OCR...</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Datos Extraídos */}
+          {ocrData && (
+            <Card className="p-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">2. Datos Extraídos</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge 
+                      variant={ocrData.ocr_confidence >= 0.8 ? "default" : "secondary"}
+                      className="flex items-center gap-1"
+                    >
+                      {ocrData.ocr_confidence >= 0.8 ? (
+                        <CheckCircle className="w-3 h-3" />
+                      ) : (
+                        <AlertTriangle className="w-3 h-3" />
+                      )}
+                      {Math.round(ocrData.ocr_confidence * 100)}% confianza
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditMode(!editMode)}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {editMode ? (
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Proveedor</Label>
+                      <Input
+                        value={ocrData.supplier_name || ''}
+                        onChange={(e) => updateOcrData('supplier_name', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>Número de Factura</Label>
+                      <Input
+                        value={ocrData.invoice_number || ''}
+                        onChange={(e) => updateOcrData('invoice_number', e.target.value)}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label>Fecha Emisión</Label>
+                        <Input
+                          type="date"
+                          value={ocrData.issue_date || ''}
+                          onChange={(e) => updateOcrData('issue_date', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label>Fecha Vencimiento</Label>
+                        <Input
+                          type="date"
+                          value={ocrData.due_date || ''}
+                          onChange={(e) => updateOcrData('due_date', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Monto Total</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={ocrData.amount_total || ''}
+                        onChange={(e) => updateOcrData('amount_total', parseFloat(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Proveedor:</span>
+                        <p className="font-medium">{ocrData.supplier_name || 'No detectado'}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Número:</span>
+                        <p className="font-medium">{ocrData.invoice_number || 'No detectado'}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Emisión:</span>
+                        <p className="font-medium">{ocrData.issue_date || 'No detectado'}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Vencimiento:</span>
+                        <p className="font-medium">{ocrData.due_date || 'No detectado'}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Total:</span>
+                        <p className="font-medium text-lg">
+                          {ocrData.amount_total ? formatCurrency(ocrData.amount_total) : 'No detectado'}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Moneda:</span>
+                        <p className="font-medium">{ocrData.currency || 'ARS'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <Separator />
+
+                <div className="flex gap-3">
+                  <Button 
+                    onClick={handleSaveInvoice}
+                    className="flex-1"
+                    disabled={!ocrData.supplier_name || !ocrData.amount_total}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Crear Factura
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+      </div>
+    </Layout>
+  );
+};
