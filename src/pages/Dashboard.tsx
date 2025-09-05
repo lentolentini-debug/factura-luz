@@ -11,22 +11,71 @@ import {
   Calendar
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
-
-// Datos de ejemplo para KPIs
-const kpiData = {
-  totalPendiente: 1250000,
-  totalVencido: 385000,
-  totalPagado: 2100000,
-  facturasPendientes: 12,
-};
-
-const upcomingInvoices = [
-  { id: '1', supplier: 'Proveedor ABC S.A.', amount: 125000, dueDate: '2024-03-15' },
-  { id: '2', supplier: 'Servicios XYZ Ltda.', amount: 87500, dueDate: '2024-03-18' },
-  { id: '3', supplier: 'Materiales DEF S.R.L.', amount: 195000, dueDate: '2024-03-20' },
-];
+import { useInvoices } from '@/hooks/useInvoices';
+import { useEffect, useMemo } from 'react';
 
 export const Dashboard = () => {
+  const { invoices, loading, updateOverdueInvoices } = useInvoices();
+
+  useEffect(() => {
+    // Actualizar facturas vencidas al cargar el dashboard
+    updateOverdueInvoices();
+  }, []);
+
+  const kpiData = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const totalPendiente = invoices
+      .filter(inv => ['Recibida', 'Pendiente'].includes(inv.status))
+      .reduce((sum, inv) => sum + inv.amount_total, 0);
+      
+    const totalVencido = invoices
+      .filter(inv => inv.status === 'Vencida')
+      .reduce((sum, inv) => sum + inv.amount_total, 0);
+      
+    const totalPagado = invoices
+      .filter(inv => {
+        const invoiceDate = new Date(inv.created_at);
+        return inv.status === 'Pagada' && 
+               invoiceDate.getMonth() === currentMonth && 
+               invoiceDate.getFullYear() === currentYear;
+      })
+      .reduce((sum, inv) => sum + inv.amount_total, 0);
+      
+    const facturasPendientes = invoices
+      .filter(inv => ['Recibida', 'Pendiente'].includes(inv.status)).length;
+
+    return {
+      totalPendiente,
+      totalVencido,
+      totalPagado,
+      facturasPendientes,
+    };
+  }, [invoices]);
+
+  const upcomingInvoices = useMemo(() => {
+    const now = new Date();
+    const nextWeek = new Date();
+    nextWeek.setDate(now.getDate() + 7);
+    
+    return invoices
+      .filter(inv => {
+        const dueDate = new Date(inv.due_date);
+        return ['Recibida', 'Pendiente'].includes(inv.status) && 
+               dueDate >= now && 
+               dueDate <= nextWeek;
+      })
+      .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+      .slice(0, 3)
+      .map(inv => ({
+        id: inv.id,
+        supplier: inv.supplier?.name || 'Sin proveedor',
+        amount: inv.amount_total,
+        dueDate: inv.due_date,
+      }));
+  }, [invoices]);
   return (
     <Layout>
       <div className="p-8 space-y-8">

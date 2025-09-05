@@ -6,6 +6,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./components/AuthProvider";
 import { useAuth } from "./hooks/useAuth";
 import { Dashboard } from "./pages/Dashboard";
+import { Facturas } from "./pages/Facturas";
+import { Proveedores } from "./pages/Proveedores";
 import { Login } from "./pages/Login";
 import { Chat } from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -73,7 +75,7 @@ const App = () => (
             } />
             <Route path="/facturas" element={
               <ProtectedRoute>
-                <Dashboard />
+                <Facturas />
               </ProtectedRoute>
             } />
             <Route path="/pagos" element={
@@ -88,7 +90,7 @@ const App = () => (
             } />
             <Route path="/proveedores" element={
               <ProtectedRoute>
-                <Dashboard />
+                <Proveedores />
               </ProtectedRoute>
             } />
             <Route path="/backups" element={
