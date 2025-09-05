@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./components/AuthProvider";
-import { useAuth } from "./hooks/useAuth";
+import { useAuth } from "./hooks/useAuthDemo";
 import { Dashboard } from "./pages/Dashboard";
 import { Facturas } from "./pages/Facturas";
 import { Proveedores } from "./pages/Proveedores";
@@ -12,7 +12,7 @@ import { CargarFactura } from "./pages/CargarFactura";
 import { Pagos } from "./pages/Pagos";
 import { Configuracion } from "./pages/Configuracion";
 import { Backups } from "./pages/Backups";
-import { Login } from "./pages/Login";
+import { LoginDemo } from "./pages/LoginDemo";
 import { Chat } from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 
@@ -64,7 +64,7 @@ const App = () => (
           <Routes>
             <Route path="/login" element={
               <PublicRoute>
-                <Login />
+                <LoginDemo />
               </PublicRoute>
             } />
             <Route path="/" element={
