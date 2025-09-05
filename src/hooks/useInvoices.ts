@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
-import { supabase, Invoice, Supplier } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { useAuth } from './useAuth';
+
+type Invoice = Tables<'invoices'> & {
+  supplier?: Tables<'suppliers'>;
+};
 
 export const useInvoices = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -21,7 +26,7 @@ export const useInvoices = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setInvoices(data || []);
+      setInvoices(data as Invoice[] || []);
     } catch (error) {
       console.error('Error fetching invoices:', error);
     } finally {
@@ -29,7 +34,7 @@ export const useInvoices = () => {
     }
   };
 
-  const createInvoice = async (invoiceData: Partial<Invoice>) => {
+  const createInvoice = async (invoiceData: Partial<Tables<'invoices'>>) => {
     if (!user) throw new Error('Usuario no autenticado');
 
     const { data, error } = await supabase
@@ -39,7 +44,7 @@ export const useInvoices = () => {
         created_by: user.id,
         status: 'Recibida',
         currency: invoiceData.currency || 'ARS',
-      })
+      } as Tables<'invoices'>)
       .select()
       .single();
 
@@ -51,14 +56,14 @@ export const useInvoices = () => {
       action: 'CREATE_INVOICE',
       entity_type: 'invoice',
       entity_id: data.id,
-      payload_json: invoiceData,
+      payload_json: invoiceData as any,
     });
 
     await fetchInvoices();
     return data;
   };
 
-  const updateInvoice = async (id: string, updates: Partial<Invoice>) => {
+  const updateInvoice = async (id: string, updates: Partial<Tables<'invoices'>>) => {
     if (!user) throw new Error('Usuario no autenticado');
 
     const { data, error } = await supabase
@@ -79,7 +84,7 @@ export const useInvoices = () => {
       action: 'UPDATE_INVOICE',
       entity_type: 'invoice',
       entity_id: id,
-      payload_json: updates,
+      payload_json: updates as any,
     });
 
     await fetchInvoices();

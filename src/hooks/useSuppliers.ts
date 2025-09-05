@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { supabase, Supplier } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { useAuth } from './useAuth';
+
+type Supplier = Tables<'suppliers'>;
 
 export const useSuppliers = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -26,13 +29,14 @@ export const useSuppliers = () => {
     }
   };
 
-  const createSupplier = async (supplierData: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>) => {
+  const createSupplier = async (supplierData: Omit<Supplier, 'id' | 'created_at' | 'updated_at' | 'created_by'>) => {
     if (!user) throw new Error('Usuario no autenticado');
 
     const { data, error } = await supabase
       .from('suppliers')
       .insert({
         ...supplierData,
+        created_by: user.id,
         default_currency: supplierData.default_currency || 'ARS',
       })
       .select()
@@ -122,7 +126,11 @@ export const useSuppliers = () => {
     // Create new supplier
     return await createSupplier({
       name,
-      tax_id: taxId,
+      tax_id: taxId || null,
+      email: null,
+      phone: null,
+      address: null,
+      notes: null,
       default_currency: 'ARS',
     });
   };

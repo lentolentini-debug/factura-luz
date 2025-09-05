@@ -11,49 +11,9 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { Eye, Edit, Trash2, Search, Filter } from 'lucide-react';
+import { Eye, Edit, Trash2, Search, Filter, Loader2 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-
-interface Invoice {
-  id: string;
-  invoiceNumber: string;
-  supplier: string;
-  issueDate: string;
-  dueDate: string;
-  amount: number;
-  status: 'Recibida' | 'Pendiente' | 'Pagada' | 'Vencida';
-}
-
-// Datos de ejemplo
-const sampleInvoices: Invoice[] = [
-  {
-    id: '1',
-    invoiceNumber: 'FAC-001-2024',
-    supplier: 'Proveedor ABC S.A.',
-    issueDate: '2024-03-01',
-    dueDate: '2024-03-15',
-    amount: 125000,
-    status: 'Pendiente'
-  },
-  {
-    id: '2',
-    invoiceNumber: 'FAC-002-2024',
-    supplier: 'Servicios XYZ Ltda.',
-    issueDate: '2024-02-28',
-    dueDate: '2024-03-28',
-    amount: 87500,
-    status: 'Pagada'
-  },
-  {
-    id: '3',
-    invoiceNumber: 'FAC-003-2024',
-    supplier: 'Materiales DEF S.R.L.',
-    issueDate: '2024-02-20',
-    dueDate: '2024-03-05',
-    amount: 195000,
-    status: 'Vencida'
-  },
-];
+import { useInvoices } from '@/hooks/useInvoices';
 
 const statusVariants = {
   'Recibida': 'bg-accent text-accent-foreground',
@@ -64,11 +24,11 @@ const statusVariants = {
 
 export const InvoiceTable = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [invoices] = useState<Invoice[]>(sampleInvoices);
+  const { invoices, loading } = useInvoices();
 
   const filteredInvoices = invoices.filter(invoice =>
-    invoice.supplier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())
+    (invoice.supplier?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    invoice.invoice_number.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -108,33 +68,50 @@ export const InvoiceTable = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredInvoices.map((invoice) => (
-              <TableRow key={invoice.id}>
-                <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                <TableCell>{invoice.supplier}</TableCell>
-                <TableCell>{formatDate(invoice.issueDate)}</TableCell>
-                <TableCell>{formatDate(invoice.dueDate)}</TableCell>
-                <TableCell className="font-medium">{formatCurrency(invoice.amount)}</TableCell>
-                <TableCell>
-                  <Badge className={statusVariants[invoice.status]}>
-                    {invoice.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex gap-1 justify-end">
-                    <Button variant="ghost" size="sm">
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                  <p className="text-sm text-muted-foreground mt-2">Cargando facturas...</p>
                 </TableCell>
               </TableRow>
-            ))}
+            ) : filteredInvoices.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <p className="text-sm text-muted-foreground">
+                    {searchTerm ? 'No se encontraron facturas que coincidan con la búsqueda' : 'No hay facturas registradas'}
+                  </p>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredInvoices.map((invoice) => (
+                <TableRow key={invoice.id}>
+                  <TableCell className="font-medium">{invoice.invoice_number}</TableCell>
+                  <TableCell>{invoice.supplier?.name || 'Sin proveedor'}</TableCell>
+                  <TableCell>{formatDate(invoice.issue_date)}</TableCell>
+                  <TableCell>{formatDate(invoice.due_date)}</TableCell>
+                  <TableCell className="font-medium">{formatCurrency(invoice.amount_total)}</TableCell>
+                  <TableCell>
+                    <Badge className={statusVariants[invoice.status]}>
+                      {invoice.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="sm">
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm">
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

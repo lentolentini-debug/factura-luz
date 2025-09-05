@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
-import { supabase, Payment, Invoice } from '@/lib/supabase';
+import { supabase } from '@/integrations/supabase/client';
+import type { Tables } from '@/integrations/supabase/types';
 import { useAuth } from './useAuth';
+
+type Payment = Tables<'payments'>;
+type Invoice = Tables<'invoices'> & {
+  supplier?: Tables<'suppliers'>;
+};
 
 export const usePayments = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -32,12 +38,15 @@ export const usePayments = () => {
     }
   };
 
-  const createPayment = async (paymentData: Omit<Payment, 'id' | 'created_at' | 'updated_at'>) => {
+  const createPayment = async (paymentData: Omit<Payment, 'id' | 'created_at' | 'updated_at' | 'created_by'>) => {
     if (!user) throw new Error('Usuario no autenticado');
 
     const { data, error } = await supabase
       .from('payments')
-      .insert(paymentData)
+      .insert({
+        ...paymentData,
+        created_by: user.id,
+      })
       .select()
       .single();
 
@@ -160,7 +169,7 @@ export const usePayments = () => {
     const { data, error } = await query.limit(10);
     
     if (error) throw error;
-    return data || [];
+    return (data as Invoice[]) || [];
   };
 
   useEffect(() => {

@@ -85,8 +85,9 @@ export const Pagos = () => {
         payment_date: formData.payment_date.toISOString().split('T')[0],
         amount_paid: parseFloat(formData.amount_paid),
         method: formData.method,
-        reference_number: formData.reference_number || undefined,
-        notes: formData.notes || undefined,
+        reference_number: formData.reference_number || null,
+        receipt_file_url: null,
+        notes: formData.notes || null,
       });
 
       toast.success('Pago registrado exitosamente');

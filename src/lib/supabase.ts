@@ -1,11 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
-
-// For now, using demo configuration until Supabase is connected
-// Users should connect their Supabase project via the green button in the interface
-const supabaseUrl = 'https://demo.supabase.co';
-const supabaseAnonKey = 'demo-key';
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Re-export the configured Supabase client
+export { supabase } from '@/integrations/supabase/client';
 
 // Database types
 export interface Profile {
@@ -59,6 +53,7 @@ export interface Payment {
   reference_number?: string;
   receipt_file_url?: string;
   notes?: string;
+  created_by: string;
   created_at: string;
   updated_at: string;
 }
