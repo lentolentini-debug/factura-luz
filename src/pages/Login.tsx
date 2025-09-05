@@ -23,26 +23,39 @@ export const Login = () => {
     setLoading(true);
 
     try {
+      let result;
       if (isLoginMode) {
         // Try login with username first, fallback to email
         if (username.includes('@')) {
-          await signIn(username, password);
+          result = await signIn(username, password);
         } else {
-          await signInWithUsername(username, password);
+          result = await signInWithUsername(username, password);
         }
+        
+        if (result.error) {
+          throw new Error(result.error.message || 'Error al iniciar sesión');
+        }
+        
         toast({
           title: "¡Bienvenido!",
           description: "Has iniciado sesión correctamente.",
         });
         navigate('/');
       } else {
-        await signUp(email, password, username);
+        result = await signUp(email, password, username);
+        
+        if (result.error) {
+          throw new Error(result.error.message || 'Error al crear la cuenta');
+        }
+        
         toast({
           title: "Cuenta creada",
           description: "Revisa tu email para confirmar tu cuenta.",
         });
+        setIsLoginMode(true); // Switch to login mode after successful signup
       }
     } catch (error: any) {
+      console.error('Authentication error:', error);
       toast({
         title: "Error",
         description: error.message || "Ha ocurrido un error",
@@ -64,12 +77,18 @@ export const Login = () => {
     }
 
     try {
-      await resetPassword(username.includes('@') ? username : email);
+      const result = await resetPassword(username.includes('@') ? username : email);
+      
+      if (result.error) {
+        throw new Error(result.error.message || 'Error al enviar el email');
+      }
+      
       toast({
         title: "Email enviado",
         description: "Revisa tu email para recuperar tu contraseña.",
       });
     } catch (error: any) {
+      console.error('Password reset error:', error);
       toast({
         title: "Error",
         description: error.message || "Ha ocurrido un error",
