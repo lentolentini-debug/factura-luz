@@ -1,16 +1,16 @@
-import { useState, useEffect, createContext, useContext } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase, Profile } from '@/lib/supabase';
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
-  profile: Profile | null;
+  session: Session | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signInWithUsername: (username: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, username: string) => Promise<void>;
-  signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error?: any }>;
+  signInWithUsername: (username: string, password: string) => Promise<{ error?: any }>;
+  signUp: (email: string, password: string, username?: string) => Promise<{ error?: any }>;
+  signOut: () => Promise<{ error?: any }>;
+  resetPassword: (email: string) => Promise<{ error?: any }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,121 +25,85 @@ export const useAuth = () => {
 
 export const useAuthProvider = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
       setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-      } else {
-        setProfile(null);
-      }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-    }
-  };
-
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (error) throw error;
+    return { error };
   };
 
   const signInWithUsername = async (username: string, password: string) => {
-    // First, get the email associated with the username
-    const { data: profileData, error: profileError } = await supabase
+    // Try to find user by username in profiles table, then get email
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('email')
       .eq('username', username)
       .single();
 
-    if (profileError) throw new Error('Usuario no encontrado');
+    if (profileError || !profile?.email) {
+      return { error: { message: 'Usuario no encontrado' } };
+    }
 
-    // Then sign in with email
-    const { error } = await supabase.auth.signInWithPassword({
-      email: profileData.email,
-      password,
-    });
-    if (error) throw error;
+    return signIn(profile.email, password);
   };
 
-  const signUp = async (email: string, password: string, username: string) => {
-    // Check if username is already taken
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('username')
-      .eq('username', username)
-      .single();
-
-    if (existingProfile) {
-      throw new Error('El nombre de usuario ya está en uso');
-    }
-
-    const { data, error } = await supabase.auth.signUp({
+  const signUp = async (email: string, password: string, username?: string) => {
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: redirectUrl,
+        data: {
+          username: username || email.split('@')[0]
+        }
+      }
     });
-
-    if (error) throw error;
-
-    if (data.user) {
-      // Create profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          email,
-          username,
-          role: 'user',
-        });
-
-      if (profileError) throw profileError;
-    }
+    return { error };
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    return { error };
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
-    if (error) throw error;
+    const redirectUrl = `${window.location.origin}/`;
+    
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: redirectUrl,
+    });
+    return { error };
   };
 
   return {
     user,
-    profile,
+    session,
     loading,
     signIn,
     signInWithUsername,
@@ -147,6 +111,16 @@ export const useAuthProvider = () => {
     signOut,
     resetPassword,
   };
+};
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const auth = useAuthProvider();
+
+  return (
+    <AuthContext.Provider value={auth}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export { AuthContext };

@@ -1,16 +1,3 @@
-import { ReactNode } from 'react';
-import { AuthContext, useAuthProvider } from '@/hooks/useAuthDemo';
-
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const auth = useAuthProvider();
-
-  return (
-    <AuthContext.Provider value={auth}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
+// This file is now deprecated - auth logic moved to useAuth.ts
+// Export from useAuth for backward compatibility
+export { AuthProvider } from '@/hooks/useAuth';
