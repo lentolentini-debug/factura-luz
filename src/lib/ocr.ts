@@ -198,84 +198,166 @@ export class OCRService {
   }
 
   private static extractDates(text: string, result: any) {
-    // Fecha de emisión
-    const emissionPattern = /Fecha\s*de\s*Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
-    const emissionMatch = text.match(emissionPattern);
-    if (emissionMatch) {
-      result.issue_date = this.parseDate(emissionMatch[1]);
+    // Fecha de emisión - múltiples patrones
+    const emissionPatterns = [
+      /Fecha\s*de\s*Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+      /Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i
+    ];
+    
+    for (const pattern of emissionPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.issue_date = this.parseDate(match[1]);
+        break;
+      }
     }
 
-    // Período facturado
-    const periodPattern = /Per[ií]odo\s*Facturado[\s\S]*?Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})[\s\S]*?Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
-    const periodMatch = text.match(periodPattern);
-    if (periodMatch) {
-      result.service_period_from = this.parseDate(periodMatch[1]);
-      result.service_period_to = this.parseDate(periodMatch[2]);
+    // Período facturado - patrón más flexible
+    const periodPatterns = [
+      /Per[ií]odo\s*Facturado\s*Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\s*Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+      /Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\s*Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i
+    ];
+    
+    for (const pattern of periodPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.service_period_from = this.parseDate(match[1]);
+        result.service_period_to = this.parseDate(match[2]);
+        break;
+      }
     }
 
-    // Fecha de vencimiento
-    const duePattern = /Fecha\s*de\s*Vto\.?\s*(para\s*el\s*pago)?[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
-    const dueMatch = text.match(duePattern);
-    if (dueMatch) {
-      result.due_date = this.parseDate(dueMatch[2]);
+    // Fecha de vencimiento - más patrones
+    const duePatterns = [
+      /Fecha\s*de\s*Vto\.?\s*para\s*el\s*pago[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+      /Vto\.?\s*para\s*el\s*pago[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+      /Fecha\s*de\s*Vto\.?[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i
+    ];
+    
+    for (const pattern of duePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.due_date = this.parseDate(match[1]);
+        break;
+      }
     }
   }
 
   private static extractAmounts(text: string, result: any) {
-    // Importe neto gravado
-    const netPattern = /Importe\s*Neto(\s*Gravado)?[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i;
-    const netMatch = text.match(netPattern);
-    if (netMatch) {
-      result.amounts.net = this.parseAmount(netMatch[2]);
-    }
-
-    // IVA por alícuotas
-    const ivaPattern = /IVA\s*([0-9]{1,2}(?:\.[0-9]+)?)%\s*[:\s]*\$?\s*([0-9\.\s]+,\d{2})/gi;
-    const ivaMatches = Array.from(text.matchAll(ivaPattern));
+    // Importe neto gravado - buscar en la sección de totales
+    const netPatterns = [
+      /Importe\s*Neto\s*Gravado[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i,
+      /Neto\s*Gravado[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i,
+      // Buscar en tabla de totales al final
+      /Gravado[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i
+    ];
     
-    for (const match of ivaMatches) {
-      const rate = parseFloat(match[1]) / 100;
-      const amount = this.parseAmount(match[2]);
-      result.amounts.taxes.push({
-        type: 'IVA',
-        rate: rate,
-        amount: amount
-      });
+    for (const pattern of netPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.amounts.net = this.parseAmount(match[1]);
+        break;
+      }
     }
 
-    // Importe total
-    const totalPattern = /Importe\s*Total[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i;
-    const totalMatch = text.match(totalPattern);
-    if (totalMatch) {
-      result.amounts.total = this.parseAmount(totalMatch[1]);
+    // IVA por alícuotas - buscar en sección de totales
+    const ivaPatterns = [
+      /IVA\s*([0-9]{1,2}(?:\.[0-9]+)?)%[:\s]*\$?\s*([0-9\.\s]+,\d{2})/gi,
+      /IVA\s*([0-9]{1,2}(?:\.[0-9]+)?)%.*?([0-9\.\s]+,\d{2})/gi
+    ];
+    
+    for (const pattern of ivaPatterns) {
+      const matches = Array.from(text.matchAll(pattern));
+      for (const match of matches) {
+        const rate = parseFloat(match[1]) / 100;
+        const amount = this.parseAmount(match[2]);
+        if (amount > 0) { // Solo agregar si hay monto
+          result.amounts.taxes.push({
+            type: 'IVA',
+            rate: rate,
+            amount: amount
+          });
+        }
+      }
+    }
+
+    // Importe total - múltiples patrones
+    const totalPatterns = [
+      /Importe\s*Total[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i,
+      /Total[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i,
+      // Buscar el último monto grande en el documento
+      /\$?\s*([0-9]{3}\.[0-9]{3,},\d{2})/g
+    ];
+    
+    for (const pattern of totalPatterns) {
+      if (pattern.global) {
+        // Para el patrón global, tomar el último (mayor) monto
+        const matches = Array.from(text.matchAll(pattern));
+        if (matches.length > 0) {
+          const amounts = matches.map(m => this.parseAmount(m[1]));
+          result.amounts.total = Math.max(...amounts);
+          break;
+        }
+      } else {
+        const match = text.match(pattern);
+        if (match) {
+          result.amounts.total = this.parseAmount(match[1]);
+          break;
+        }
+      }
     }
   }
 
   private static extractParties(text: string, result: any) {
-    // Extraer CUIT (el primero suele ser del proveedor)
-    const cuitPattern = /(?:CUIT|C\.U\.I\.T\.)[:\s]*([0-9]{2}-[0-9]{8}-[0-9])/gi;
+    // Extraer CUIT (búsqueda más flexible)
+    const cuitPattern = /(?:CUIT|C\.U\.I\.T\.)[:\s]*([0-9]{2}[-\s]?[0-9]{8}[-\s]?[0-9])/gi;
     const cuitMatches = Array.from(text.matchAll(cuitPattern));
     
     if (cuitMatches.length > 0) {
-      result.supplier.cuit = cuitMatches[0][1].replace(/-/g, '');
+      result.supplier.cuit = cuitMatches[0][1].replace(/[-\s]/g, '');
       if (cuitMatches.length > 1) {
-        result.customer.cuit = cuitMatches[1][1].replace(/-/g, '');
+        result.customer.cuit = cuitMatches[1][1].replace(/[-\s]/g, '');
       }
     }
 
-    // Razón social del proveedor (cerca del primer CUIT)
-    const supplierPattern = /(?:Raz[oó]n\s*Social|Apellido\s*y\s*Nombre)[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+(?:S\.?A\.?|S\.?R\.?L\.?|LTDA\.?)?)/i;
+    // Buscar nombre del proveedor en el encabezado (primera línea significativa)
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 5);
+    
+    // Patrón para detectar nombres de empresas/estudios en las primeras líneas
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const line = lines[i];
+      // Saltar líneas que son claramente headers o códigos
+      if (line.includes('ORIGINAL') || line.includes('FACTURA') || line.includes('COD.')) continue;
+      
+      // Buscar líneas que parecen nombres de empresas
+      if (/^[A-ZÁÉÍÓÚ&][A-Za-záéíóúñ\s&.-]{5,}(?:ABOGADOS?|S\.?A\.?|S\.?R\.?L\.?|LTDA\.?|ASOCIADOS?|Y CIA\.?)?$/i.test(line)) {
+        result.supplier.name = line.trim();
+        break;
+      }
+    }
+
+    // Razón social más específica
+    const supplierPattern = /(?:Raz[oó]n\s*Social)[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+(?:S\.?A\.?|S\.?R\.?L\.?|S\.?C\.?|LTDA\.?)?)/i;
     const supplierMatch = text.match(supplierPattern);
     if (supplierMatch) {
       result.supplier.legal_name = supplierMatch[1].trim();
-      result.supplier.name = supplierMatch[1].trim();
+      if (!result.supplier.name) {
+        result.supplier.name = supplierMatch[1].trim();
+      }
     }
 
-    // Cliente/receptor
-    const customerPattern = /Se[ñn]or(?:es)?\s*[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)/i;
-    const customerMatch = text.match(customerPattern);
-    if (customerMatch) {
-      result.customer.name = customerMatch[1].trim();
+    // Cliente/receptor (buscar por "Apellido y Nombre" o "Razón Social" del cliente)
+    const customerPatterns = [
+      /(?:Apellido\s*y\s*Nombre\s*\/?\s*Raz[oó]n\s*Social)[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)/i,
+      /Se[ñn]or(?:es)?\s*[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)/i
+    ];
+    
+    for (const pattern of customerPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.customer.name = match[1].trim();
+        break;
+      }
     }
   }
 
