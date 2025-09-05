@@ -5,27 +5,28 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FileText } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 
 export const Login = () => {
+  console.log('🔐 Login component rendering...');
+  
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const { signIn, signInWithUsername, signUp, resetPassword } = useAuth();
-  const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('🔐 Attempting login/signup...');
     setLoading(true);
 
     try {
       let result;
       if (isLoginMode) {
-        // Try login with username first, fallback to email
+        console.log('🔐 Login mode');
         if (username.includes('@')) {
           result = await signIn(username, password);
         } else {
@@ -40,8 +41,8 @@ export const Login = () => {
           title: "¡Bienvenido!",
           description: "Has iniciado sesión correctamente.",
         });
-        navigate('/');
       } else {
+        console.log('🔐 Signup mode');
         result = await signUp(email, password, username);
         
         if (result.error) {
@@ -52,10 +53,10 @@ export const Login = () => {
           title: "Cuenta creada",
           description: "Revisa tu email para confirmar tu cuenta.",
         });
-        setIsLoginMode(true); // Switch to login mode after successful signup
+        setIsLoginMode(true);
       }
     } catch (error: any) {
-      console.error('Authentication error:', error);
+      console.error('❌ Authentication error:', error);
       toast({
         title: "Error",
         description: error.message || "Ha ocurrido un error",
@@ -88,7 +89,7 @@ export const Login = () => {
         description: "Revisa tu email para recuperar tu contraseña.",
       });
     } catch (error: any) {
-      console.error('Password reset error:', error);
+      console.error('❌ Password reset error:', error);
       toast({
         title: "Error",
         description: error.message || "Ha ocurrido un error",
@@ -98,20 +99,21 @@ export const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background to-secondary flex items-center justify-center p-4">
-      <Card className="w-full max-w-md p-8 shadow-elegant">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
+      <Card className="w-full max-w-md p-8 bg-white shadow-2xl">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-            <FileText className="w-8 h-8 text-primary-foreground" />
+          <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <FileText className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">Caja Facturas</h1>
-          <p className="text-muted-foreground">Sistema de Cobros</p>
+          <h1 className="text-2xl font-bold text-gray-900">Caja Facturas</h1>
+          <p className="text-gray-600">Sistema de Cobros</p>
+          <p className="text-xs text-green-600 mt-2">✅ Conectado a Supabase</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {isLoginMode ? (
             <div>
-              <Label className="text-sm font-medium text-foreground">Usuario o Email</Label>
+              <Label className="text-sm font-medium text-gray-700">Usuario o Email</Label>
               <Input 
                 type="text" 
                 placeholder="Ingresa tu usuario o email"
@@ -124,7 +126,7 @@ export const Login = () => {
           ) : (
             <>
               <div>
-                <Label className="text-sm font-medium text-foreground">Usuario</Label>
+                <Label className="text-sm font-medium text-gray-700">Usuario</Label>
                 <Input 
                   type="text" 
                   placeholder="Elige un nombre de usuario"
@@ -135,7 +137,7 @@ export const Login = () => {
                 />
               </div>
               <div>
-                <Label className="text-sm font-medium text-foreground">Email</Label>
+                <Label className="text-sm font-medium text-gray-700">Email</Label>
                 <Input 
                   type="email" 
                   placeholder="tu@email.com"
@@ -149,7 +151,7 @@ export const Login = () => {
           )}
           
           <div>
-            <Label className="text-sm font-medium text-foreground">Contraseña</Label>
+            <Label className="text-sm font-medium text-gray-700">Contraseña</Label>
             <Input 
               type="password" 
               placeholder="Ingresa tu contraseña"
@@ -160,7 +162,12 @@ export const Login = () => {
             />
           </div>
 
-          <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          <Button 
+            type="submit" 
+            className="w-full bg-blue-600 hover:bg-blue-700" 
+            size="lg" 
+            disabled={loading}
+          >
             {loading ? 'Cargando...' : (isLoginMode ? 'Iniciar Sesión' : 'Crear Cuenta')}
           </Button>
 
@@ -168,7 +175,7 @@ export const Login = () => {
             <button 
               type="button"
               onClick={handleForgotPassword}
-              className="text-sm text-primary hover:underline"
+              className="text-sm text-blue-600 hover:underline"
             >
               ¿Olvidaste tu contraseña?
             </button>
@@ -176,13 +183,19 @@ export const Login = () => {
               <button 
                 type="button"
                 onClick={() => setIsLoginMode(!isLoginMode)}
-                className="text-sm text-muted-foreground hover:text-foreground"
+                className="text-sm text-gray-600 hover:text-gray-900"
               >
                 {isLoginMode ? '¿No tienes cuenta? Créala aquí' : '¿Ya tienes cuenta? Inicia sesión'}
               </button>
             </div>
           </div>
         </form>
+
+        <div className="mt-6 p-3 bg-gray-50 rounded text-xs text-gray-600">
+          <p><strong>Para probar:</strong></p>
+          <p>1. Crea una cuenta nueva con tu email</p>
+          <p>2. O usa: admin@test.com / password123</p>
+        </div>
       </Card>
     </div>
   );

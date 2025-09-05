@@ -17,102 +17,54 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth();
+// Simple debugging component
+const DebugAuth = () => {
+  const { user, loading, session } = useAuth();
   
+  console.log('🐛 Debug Auth State:', { 
+    user: user?.id, 
+    loading, 
+    hasSession: !!session 
+  });
+
   if (loading) {
+    console.log('⏳ App is loading...');
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+        <p className="text-lg">Cargando aplicación...</p>
+        <p className="text-sm text-slate-400 mt-2">Conectando con Supabase...</p>
       </div>
     );
   }
   
   if (!user) {
-    return <Navigate to="/login" replace />;
+    console.log('👤 No user logged in, showing login page');
+    return <Login />;
   }
   
-  return <>{children}</>;
+  console.log('✅ User logged in, showing dashboard');
+  return <Dashboard />;
 };
 
-const PublicRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth();
+const App = () => {
+  console.log('🚀 App component rendering...');
   
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-  
-  if (user) {
-    return <Navigate to="/" replace />;
-  }
-  
-  return <>{children}</>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
+              <Route path="/*" element={<DebugAuth />} />
+            </Routes>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 };
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={
-              <PublicRoute>
-                <Login />
-              </PublicRoute>
-            } />
-            <Route path="/" element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            } />
-            <Route path="/chat" element={
-              <ProtectedRoute>
-                <Chat />
-              </ProtectedRoute>
-            } />
-            <Route path="/facturas" element={
-              <ProtectedRoute>
-                <Facturas />
-              </ProtectedRoute>
-            } />
-            <Route path="/pagos" element={
-              <ProtectedRoute>
-                <Pagos />
-              </ProtectedRoute>
-            } />
-            <Route path="/cargar" element={
-              <ProtectedRoute>
-                <CargarFactura />
-              </ProtectedRoute>
-            } />
-            <Route path="/proveedores" element={
-              <ProtectedRoute>
-                <Proveedores />
-              </ProtectedRoute>
-            } />
-            <Route path="/backups" element={
-              <ProtectedRoute>
-                <Backups />
-              </ProtectedRoute>
-            } />
-            <Route path="/configuracion" element={
-              <ProtectedRoute>
-                <Configuracion />
-              </ProtectedRoute>
-            } />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
 
 export default App;
