@@ -88,9 +88,13 @@ export type Database = {
       invoices: {
         Row: {
           amount_total: number
+          bank: Json | null
+          cae_due_date: string | null
+          cae_number: string | null
           created_at: string
           created_by: string
           currency: string
+          doc_code: string | null
           due_date: string
           id: string
           invoice_number: string
@@ -99,17 +103,27 @@ export type Database = {
           net_amount: number | null
           notes: string | null
           ocr_confidence: number | null
+          payment_terms: string | null
+          point_of_sale: string | null
+          service_period_from: string | null
+          service_period_to: string | null
           source_file_url: string | null
           status: string
           supplier_id: string
           tax_amount: number | null
+          taxes: Json | null
+          type_letter: string | null
           updated_at: string
         }
         Insert: {
           amount_total: number
+          bank?: Json | null
+          cae_due_date?: string | null
+          cae_number?: string | null
           created_at?: string
           created_by: string
           currency?: string
+          doc_code?: string | null
           due_date: string
           id?: string
           invoice_number: string
@@ -118,17 +132,27 @@ export type Database = {
           net_amount?: number | null
           notes?: string | null
           ocr_confidence?: number | null
+          payment_terms?: string | null
+          point_of_sale?: string | null
+          service_period_from?: string | null
+          service_period_to?: string | null
           source_file_url?: string | null
           status?: string
           supplier_id: string
           tax_amount?: number | null
+          taxes?: Json | null
+          type_letter?: string | null
           updated_at?: string
         }
         Update: {
           amount_total?: number
+          bank?: Json | null
+          cae_due_date?: string | null
+          cae_number?: string | null
           created_at?: string
           created_by?: string
           currency?: string
+          doc_code?: string | null
           due_date?: string
           id?: string
           invoice_number?: string
@@ -137,10 +161,16 @@ export type Database = {
           net_amount?: number | null
           notes?: string | null
           ocr_confidence?: number | null
+          payment_terms?: string | null
+          point_of_sale?: string | null
+          service_period_from?: string | null
+          service_period_to?: string | null
           source_file_url?: string | null
           status?: string
           supplier_id?: string
           tax_amount?: number | null
+          taxes?: Json | null
+          type_letter?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -276,6 +306,7 @@ export type Database = {
           address: string | null
           created_at: string
           created_by: string
+          cuit: string | null
           default_currency: string
           email: string | null
           id: string
@@ -289,6 +320,7 @@ export type Database = {
           address?: string | null
           created_at?: string
           created_by: string
+          cuit?: string | null
           default_currency?: string
           email?: string | null
           id?: string
@@ -302,6 +334,7 @@ export type Database = {
           address?: string | null
           created_at?: string
           created_by?: string
+          cuit?: string | null
           default_currency?: string
           email?: string | null
           id?: string

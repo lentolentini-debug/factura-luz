@@ -92,8 +92,8 @@ export const Pagos = () => {
       // Buscar factura basada en los datos extraídos
       const searchCriteria = {
         invoice_number: extractedData.invoice_number,
-        supplier_name: extractedData.supplier_name,
-        amount: extractedData.amount_total,
+        supplier_name: extractedData.supplier?.name,
+        amount: extractedData.amounts?.total,
         date_range: extractedData.issue_date && extractedData.due_date ? {
           start: extractedData.issue_date,
           end: extractedData.due_date

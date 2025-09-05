@@ -127,6 +127,7 @@ export const useSuppliers = () => {
     return await createSupplier({
       name,
       tax_id: taxId || null,
+      cuit: taxId || null,
       email: null,
       phone: null,
       address: null,

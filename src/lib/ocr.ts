@@ -1,17 +1,45 @@
-// Servicio de OCR usando Google Cloud Vision API
+// Servicio de OCR mejorado para facturas argentinas
 export class OCRService {
   private static readonly GCV_API_URL = 'https://vision.googleapis.com/v1/images:annotate';
 
   static async extractInvoiceData(imageBase64: string, apiKey?: string): Promise<{
-    supplier_name?: string;
+    type_letter?: string;
+    doc_code?: string;
+    point_of_sale?: string;
     invoice_number?: string;
+    comprobante_id?: string;
     issue_date?: string;
+    service_period_from?: string;
+    service_period_to?: string;
     due_date?: string;
-    currency?: string;
-    amount_total?: number;
-    net_amount?: number;
-    tax_amount?: number;
+    supplier?: {
+      name?: string;
+      legal_name?: string;
+      cuit?: string;
+    };
+    customer?: {
+      name?: string;
+      cuit?: string;
+    };
+    amounts?: {
+      net?: number;
+      taxes?: Array<{ type: string; rate: number; amount: number }>;
+      total?: number;
+      currency_code?: string;
+    };
+    payment_terms?: string;
+    bank?: {
+      bank_name?: string;
+      branch?: string;
+      cbu?: string;
+    };
+    cae?: {
+      number?: string;
+      due_date?: string;
+    };
     ocr_confidence: number;
+    needs_review?: boolean;
+    source_file_url?: string;
   }> {
     try {
       // Si no hay API key, usar procesamiento básico local
@@ -30,9 +58,12 @@ export class OCRService {
               content: imageBase64.split(',')[1] // Remover data:image/...;base64,
             },
             features: [{
-              type: 'TEXT_DETECTION',
+              type: 'DOCUMENT_TEXT_DETECTION',
               maxResults: 1
-            }]
+            }],
+            imageContext: {
+              languageHints: ['es', 'es-419']
+            }
           }]
         })
       });
@@ -42,9 +73,10 @@ export class OCRService {
       }
 
       const data = await response.json();
-      const text = data.responses[0]?.textAnnotations?.[0]?.description || '';
+      const fullText = data.responses[0]?.fullTextAnnotation?.text || 
+                      data.responses[0]?.textAnnotations?.[0]?.description || '';
       
-      return this.parseInvoiceText(text);
+      return this.parseArgentineInvoice(fullText);
     } catch (error) {
       console.error('Error in OCR:', error);
       // Fallback a procesamiento local
@@ -58,231 +90,352 @@ export class OCRService {
     
     // Simular datos extraídos con baja confianza
     return {
-      supplier_name: 'Proveedor Detectado',
+      amounts: {
+        total: Math.floor(Math.random() * 100000) + 10000,
+        currency_code: 'ARS'
+      },
+      supplier: {
+        name: 'Proveedor Detectado'
+      },
       invoice_number: 'FC-' + Math.floor(Math.random() * 10000).toString().padStart(5, '0'),
       issue_date: new Date().toISOString().split('T')[0],
       due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      currency: 'ARS',
-      amount_total: Math.floor(Math.random() * 100000) + 10000,
-      ocr_confidence: 0.6 // Baja confianza para datos simulados
+      ocr_confidence: 0.6, // Baja confianza para datos simulados
+      needs_review: true
     };
   }
 
-  private static parseInvoiceText(text: string) {
+  private static parseArgentineInvoice(text: string) {
     const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
     let confidence = 0.8;
     
-    // Extraer datos usando regex y patrones mejorados
+    // Resultado inicial con estructura argentina
     const result: any = {
       ocr_confidence: confidence,
-      currency: 'ARS'
+      needs_review: false,
+      amounts: {
+        currency_code: 'ARS',
+        taxes: []
+      },
+      supplier: {},
+      customer: {},
+      cae: {},
+      bank: {}
     };
 
-    // Mejorar detección de proveedor
-    const supplierPatterns = [
-      // Razones sociales argentinas
-      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+(?:S\.?A\.?|S\.?R\.?L\.?|S\.?A\.?S\.?|LTDA\.?|S\.?C\.?A\.?))/,
-      // Nombres comerciales
-      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]{3,50})/,
-      // Líneas que parecen nombres de empresa
-      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)\s*(?:CUIT|RUT|RFC)/i
+    // 1. Extraer tipo de factura (A/B/C)
+    this.extractInvoiceType(text, result);
+    
+    // 2. Extraer punto de venta y número
+    this.extractPointOfSaleAndNumber(text, result);
+    
+    // 3. Extraer fechas (emisión, período, vencimiento)
+    this.extractDates(text, result);
+    
+    // 4. Extraer montos con IVA por alícuota
+    this.extractAmounts(text, result);
+    
+    // 5. Extraer datos del proveedor y cliente
+    this.extractParties(text, result);
+    
+    // 6. Extraer CAE
+    this.extractCAE(text, result);
+    
+    // 7. Extraer datos bancarios
+    this.extractBankData(text, result);
+    
+    // 8. Validaciones y normalización
+    this.validateAndNormalize(result);
+    
+    // 9. Calcular confianza final
+    this.calculateConfidence(result);
+
+    return result;
+  }
+
+  private static extractInvoiceType(text: string, result: any) {
+    // Detectar tipo de factura A/B/C
+    const typePatterns = [
+      /FACTURA\s*([ABC])/i,
+      /([ABC])\s*FACTURA/i,
+      /TIPO\s*([ABC])/i,
+      /COD\.\s*0?([123])/i // 1=A, 2=B, 3=C
     ];
 
-    for (const line of lines.slice(0, 10)) { // Buscar en las primeras 10 líneas
-      for (const pattern of supplierPatterns) {
-        const match = line.match(pattern);
-        if (match && match[1].length > 3 && match[1].length < 60) {
-          result.supplier_name = match[1].trim();
+    for (const pattern of typePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        let letter = match[1].toUpperCase();
+        if (['1', '2', '3'].includes(letter)) {
+          letter = letter === '1' ? 'A' : letter === '2' ? 'B' : 'C';
+        }
+        if (['A', 'B', 'C'].includes(letter)) {
+          result.type_letter = letter;
+          result.doc_code = letter === 'A' ? '01' : letter === 'B' ? '06' : '11';
           break;
         }
       }
-      if (result.supplier_name) break;
     }
+  }
 
-    // Mejorar detección de número de factura
-    const invoicePatterns = [
-      /(?:factura|invoice|fc|fact|comprobante|nro?\.?\s*)[:\s-]*([a-z0-9\-_]+)/i,
-      /(?:^|\s)([a-z]\s*-?\s*\d{4,8}(?:\s*-\s*\d+)?)/i,
-      /(?:^|\s)(fc\s*-?\s*\d+)/i,
-      /(?:^|\s)(\d{4}-\d{8})/,
-      /(?:^|\s)(b\s*\d{4,8})/i,
-      /(?:^|\s)(a\s*\d{4,8})/i
+  private static extractPointOfSaleAndNumber(text: string, result: any) {
+    // Extraer punto de venta y número de comprobante
+    const patterns = [
+      /Punto\s*de\s*Venta[:\s]*([0-9]{1,5})[\s\S]{0,50}?Comp\.?\s*Nro\.?[:\s]*([0-9]{1,10})/i,
+      /P\.?\s*V\.?\s*[:\s]*([0-9]{1,5})[\s\S]{0,50}?N[°º]?\s*[:\s]*([0-9]{1,10})/i,
+      /([0-9]{4})\s*-\s*([0-9]{8})/
     ];
 
-    for (const pattern of invoicePatterns) {
+    for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
-        result.invoice_number = match[1].replace(/\s+/g, '').toUpperCase();
+        result.point_of_sale = match[1].padStart(4, '0');
+        result.invoice_number = match[2].padStart(8, '0');
+        result.comprobante_id = `${result.type_letter || 'X'}-${result.point_of_sale}-${result.invoice_number}`;
         break;
       }
     }
+  }
 
-    // Mejorar detección de fechas
-    const datePatterns = [
-      /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g,
-      /(\d{2,4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/g
-    ];
+  private static extractDates(text: string, result: any) {
+    // Fecha de emisión
+    const emissionPattern = /Fecha\s*de\s*Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
+    const emissionMatch = text.match(emissionPattern);
+    if (emissionMatch) {
+      result.issue_date = this.parseDate(emissionMatch[1]);
+    }
 
-    const allDates: string[] = [];
-    for (const pattern of datePatterns) {
-      const matches = text.match(pattern);
-      if (matches) {
-        allDates.push(...matches);
+    // Período facturado
+    const periodPattern = /Per[ií]odo\s*Facturado[\s\S]*?Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})[\s\S]*?Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
+    const periodMatch = text.match(periodPattern);
+    if (periodMatch) {
+      result.service_period_from = this.parseDate(periodMatch[1]);
+      result.service_period_to = this.parseDate(periodMatch[2]);
+    }
+
+    // Fecha de vencimiento
+    const duePattern = /Fecha\s*de\s*Vto\.?\s*(para\s*el\s*pago)?[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i;
+    const dueMatch = text.match(duePattern);
+    if (dueMatch) {
+      result.due_date = this.parseDate(dueMatch[2]);
+    }
+  }
+
+  private static extractAmounts(text: string, result: any) {
+    // Importe neto gravado
+    const netPattern = /Importe\s*Neto(\s*Gravado)?[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i;
+    const netMatch = text.match(netPattern);
+    if (netMatch) {
+      result.amounts.net = this.parseAmount(netMatch[2]);
+    }
+
+    // IVA por alícuotas
+    const ivaPattern = /IVA\s*([0-9]{1,2}(?:\.[0-9]+)?)%\s*[:\s]*\$?\s*([0-9\.\s]+,\d{2})/gi;
+    const ivaMatches = Array.from(text.matchAll(ivaPattern));
+    
+    for (const match of ivaMatches) {
+      const rate = parseFloat(match[1]) / 100;
+      const amount = this.parseAmount(match[2]);
+      result.amounts.taxes.push({
+        type: 'IVA',
+        rate: rate,
+        amount: amount
+      });
+    }
+
+    // Importe total
+    const totalPattern = /Importe\s*Total[:\s]*\$?\s*([0-9\.\s]+,\d{2})/i;
+    const totalMatch = text.match(totalPattern);
+    if (totalMatch) {
+      result.amounts.total = this.parseAmount(totalMatch[1]);
+    }
+  }
+
+  private static extractParties(text: string, result: any) {
+    // Extraer CUIT (el primero suele ser del proveedor)
+    const cuitPattern = /(?:CUIT|C\.U\.I\.T\.)[:\s]*([0-9]{2}-[0-9]{8}-[0-9])/gi;
+    const cuitMatches = Array.from(text.matchAll(cuitPattern));
+    
+    if (cuitMatches.length > 0) {
+      result.supplier.cuit = cuitMatches[0][1].replace(/-/g, '');
+      if (cuitMatches.length > 1) {
+        result.customer.cuit = cuitMatches[1][1].replace(/-/g, '');
       }
     }
 
-    if (allDates.length >= 1) {
-      // Tomar la primera fecha como fecha de emisión
-      const issueDate = this.parseDate(allDates[0]);
-      result.issue_date = issueDate;
-      
-      if (allDates.length >= 2) {
-        // Tomar la segunda fecha como vencimiento
-        result.due_date = this.parseDate(allDates[1]);
+    // Razón social del proveedor (cerca del primer CUIT)
+    const supplierPattern = /(?:Raz[oó]n\s*Social|Apellido\s*y\s*Nombre)[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+(?:S\.?A\.?|S\.?R\.?L\.?|LTDA\.?)?)/i;
+    const supplierMatch = text.match(supplierPattern);
+    if (supplierMatch) {
+      result.supplier.legal_name = supplierMatch[1].trim();
+      result.supplier.name = supplierMatch[1].trim();
+    }
+
+    // Cliente/receptor
+    const customerPattern = /Se[ñn]or(?:es)?\s*[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)/i;
+    const customerMatch = text.match(customerPattern);
+    if (customerMatch) {
+      result.customer.name = customerMatch[1].trim();
+    }
+  }
+
+  private static extractCAE(text: string, result: any) {
+    // Número de CAE
+    const caePattern = /CAE\s*N[°º][:\s]*([0-9]{8,16})/i;
+    const caeMatch = text.match(caePattern);
+    if (caeMatch) {
+      result.cae.number = caeMatch[1];
+    }
+
+    // Fecha de vencimiento del CAE
+    const caeDuePattern = /(?:Fecha\s*de\s*Vto\.?\s*(?:de\s*CAE)?|Vto\.?\s*CAE)[:\s]*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{4})/i;
+    const caeDueMatch = text.match(caeDuePattern);
+    if (caeDueMatch) {
+      result.cae.due_date = this.parseDate(caeDueMatch[1]);
+    }
+  }
+
+  private static extractBankData(text: string, result: any) {
+    // CBU
+    const cbuPattern = /CBU[:\s]*([\d\s]{22,})/i;
+    const cbuMatch = text.match(cbuPattern);
+    if (cbuMatch) {
+      result.bank.cbu = cbuMatch[1].replace(/\s/g, '').substring(0, 22);
+    }
+
+    // Banco
+    const bankPattern = /Banco[:\s]*([A-Za-z\s]+)/i;
+    const bankMatch = text.match(bankPattern);
+    if (bankMatch) {
+      result.bank.bank_name = bankMatch[1].trim();
+    }
+
+    // Sucursal
+    const branchPattern = /Sucursal[:\s]*([A-Za-z0-9\s]+)/i;
+    const branchMatch = text.match(branchPattern);
+    if (branchMatch) {
+      result.bank.branch = branchMatch[1].trim();
+    }
+  }
+
+  private static parseAmount(amountStr: string): number {
+    // Normalizar formato argentino a decimal
+    let cleanAmount = amountStr.replace(/\s/g, '');
+    
+    // Formato argentino: 1.234.567,89
+    if (cleanAmount.includes('.') && cleanAmount.includes(',')) {
+      if (cleanAmount.lastIndexOf(',') > cleanAmount.lastIndexOf('.')) {
+        cleanAmount = cleanAmount.replace(/\./g, '').replace(',', '.');
       } else {
-        // Asumir 30 días de vencimiento
-        const dueDate = new Date(issueDate);
-        dueDate.setDate(dueDate.getDate() + 30);
-        result.due_date = dueDate.toISOString().split('T')[0];
+        cleanAmount = cleanAmount.replace(/,/g, '');
+      }
+    } else if (cleanAmount.includes(',')) {
+      // Solo comas - verificar si es decimal o separador de miles
+      const commaCount = (cleanAmount.match(/,/g) || []).length;
+      if (commaCount === 1 && cleanAmount.split(',')[1].length === 2) {
+        cleanAmount = cleanAmount.replace(',', '.');
+      } else {
+        cleanAmount = cleanAmount.replace(/,/g, '');
+      }
+    } else if (cleanAmount.includes('.')) {
+      // Solo puntos - verificar si es decimal o separador de miles
+      const dotCount = (cleanAmount.match(/\./g) || []).length;
+      if (dotCount === 1 && cleanAmount.split('.')[1].length <= 2) {
+        // Es decimal
+      } else {
+        cleanAmount = cleanAmount.replace(/\./g, '');
       }
     }
+    
+    return parseFloat(cleanAmount) || 0;
+  }
 
-    // Mejorar detección de montos - Patrones argentinos
-    const amountPatterns = [
-      // Formato con $ y puntos como separadores de miles y coma como decimal
-      /\$\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/g,
-      // Formato con $ y comas como separadores de miles y punto como decimal
-      /\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/g,
-      // Formato sin símbolo con puntos como separadores
-      /(?:^|\s)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?)\s*(?:\n|$|[^0-9])/g,
-      // Formato sin símbolo con comas como separadores
-      /(?:^|\s)([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})?)\s*(?:\n|$|[^0-9])/g,
-      // Montos simples
-      /(?:total|importe|monto|subtotal)[:\s]*\$?\s*([0-9.,]+)/gi,
-      // IVA
-      /(?:iva|impuesto)[:\s]*\$?\s*([0-9.,]+)/gi
-    ];
-
-    const amounts: number[] = [];
-    const amountTypes: { [key: number]: string } = {};
-
-    for (const pattern of amountPatterns) {
-      const matches = Array.from(text.matchAll(pattern));
-      for (const match of matches) {
-        let amountStr = match[1];
-        let amount: number;
-
-        // Determinar formato y convertir
-        if (amountStr.includes('.') && amountStr.includes(',')) {
-          // Formato argentino: 1.234.567,89
-          if (amountStr.lastIndexOf(',') > amountStr.lastIndexOf('.')) {
-            amount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.'));
-          } else {
-            // Formato americano: 1,234,567.89
-            amount = parseFloat(amountStr.replace(/,/g, ''));
-          }
-        } else if (amountStr.includes(',')) {
-          // Solo comas - podría ser separador de miles o decimal
-          const commaCount = (amountStr.match(/,/g) || []).length;
-          if (commaCount === 1 && amountStr.split(',')[1].length === 2) {
-            // Probablemente decimal: 1234,56
-            amount = parseFloat(amountStr.replace(',', '.'));
-          } else {
-            // Separador de miles: 1,234,567
-            amount = parseFloat(amountStr.replace(/,/g, ''));
-          }
-        } else if (amountStr.includes('.')) {
-          // Solo puntos
-          const dotCount = (amountStr.match(/\./g) || []).length;
-          if (dotCount === 1 && amountStr.split('.')[1].length <= 2) {
-            // Probablemente decimal: 1234.56
-            amount = parseFloat(amountStr);
-          } else {
-            // Separador de miles: 1.234.567
-            amount = parseFloat(amountStr.replace(/\./g, ''));
-          }
-        } else {
-          // Solo números
-          amount = parseFloat(amountStr);
-        }
-
-        if (!isNaN(amount) && amount > 0 && amount < 999999999) {
-          amounts.push(amount);
-          
-          // Identificar tipo de monto basado en el contexto
-          const context = match.input?.substring(Math.max(0, match.index! - 20), match.index! + match[0].length + 20).toLowerCase() || '';
-          if (context.includes('total') || context.includes('importe')) {
-            amountTypes[amount] = 'total';
-          } else if (context.includes('iva') || context.includes('impuesto')) {
-            amountTypes[amount] = 'tax';
-          } else if (context.includes('subtotal') || context.includes('neto')) {
-            amountTypes[amount] = 'net';
-          }
-        }
-      }
-    }
-
-    if (amounts.length > 0) {
-      // Eliminar duplicados y ordenar
-      const uniqueAmounts = [...new Set(amounts)].sort((a, b) => b - a);
+  private static validateAndNormalize(result: any) {
+    // Validar consistencia de montos
+    if (result.amounts.total && result.amounts.net && result.amounts.taxes.length > 0) {
+      const totalTaxes = result.amounts.taxes.reduce((sum: number, tax: any) => sum + tax.amount, 0);
+      const calculatedTotal = result.amounts.net + totalTaxes;
       
-      // Buscar el total (generalmente el monto más alto)
-      let totalFound = false;
-      for (const amount of uniqueAmounts) {
-        if (amountTypes[amount] === 'total') {
-          result.amount_total = amount;
-          totalFound = true;
-          break;
-        }
-      }
-      
-      if (!totalFound && uniqueAmounts.length > 0) {
-        result.amount_total = uniqueAmounts[0]; // Tomar el más alto
-      }
-
-      // Buscar IVA
-      for (const amount of uniqueAmounts) {
-        if (amountTypes[amount] === 'tax') {
-          result.tax_amount = amount;
-          break;
-        }
-      }
-
-      // Buscar subtotal/neto
-      for (const amount of uniqueAmounts) {
-        if (amountTypes[amount] === 'net') {
-          result.net_amount = amount;
-          break;
-        }
-      }
-
-      // Si no encontramos neto pero tenemos total e IVA, calcularlo
-      if (!result.net_amount && result.amount_total && result.tax_amount) {
-        result.net_amount = result.amount_total - result.tax_amount;
-      }
-
-      // Si no encontramos IVA pero tenemos total y neto, calcularlo
-      if (!result.tax_amount && result.amount_total && result.net_amount) {
-        result.tax_amount = result.amount_total - result.net_amount;
-      }
-
-      // Si solo tenemos total, asumir IVA del 21%
-      if (result.amount_total && !result.net_amount && !result.tax_amount) {
-        result.net_amount = Math.round((result.amount_total / 1.21) * 100) / 100;
-        result.tax_amount = result.amount_total - result.net_amount;
+      // Tolerancia de 1 peso para diferencias de redondeo
+      if (Math.abs(calculatedTotal - result.amounts.total) > 1) {
+        result.needs_review = true;
       }
     }
 
-    // Ajustar confianza basada en datos encontrados
+    // Si solo tenemos total, calcular neto e IVA asumiendo 21%
+    if (result.amounts.total && !result.amounts.net && result.amounts.taxes.length === 0) {
+      result.amounts.net = Math.round((result.amounts.total / 1.21) * 100) / 100;
+      result.amounts.taxes.push({
+        type: 'IVA',
+        rate: 0.21,
+        amount: result.amounts.total - result.amounts.net
+      });
+    }
+
+    // Validar fechas
+    if (result.issue_date && result.due_date) {
+      if (new Date(result.issue_date) > new Date(result.due_date)) {
+        result.needs_review = true;
+      }
+    }
+
+    // Validar CUIT
+    if (result.supplier.cuit) {
+      result.supplier.cuit = this.validateCUIT(result.supplier.cuit);
+    }
+    if (result.customer.cuit) {
+      result.customer.cuit = this.validateCUIT(result.customer.cuit);
+    }
+
+    // Validar CBU
+    if (result.bank.cbu && result.bank.cbu.length !== 22) {
+      result.bank.cbu = null;
+    }
+  }
+
+  private static validateCUIT(cuit: string): string | null {
+    const cleanCUIT = cuit.replace(/[^0-9]/g, '');
+    if (cleanCUIT.length !== 11) return null;
+    
+    // Validar dígito verificador (algoritmo simplificado)
+    const multipliers = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+    let sum = 0;
+    
+    for (let i = 0; i < 10; i++) {
+      sum += parseInt(cleanCUIT[i]) * multipliers[i];
+    }
+    
+    const remainder = sum % 11;
+    const expectedDigit = remainder < 2 ? remainder : 11 - remainder;
+    
+    if (parseInt(cleanCUIT[10]) === expectedDigit) {
+      return cleanCUIT;
+    }
+    
+    return cleanCUIT; // Devolver igual aunque no sea válido para no bloquear
+  }
+
+  private static calculateConfidence(result: any) {
     let dataPoints = 0;
-    if (result.supplier_name) dataPoints++;
+    let totalPoints = 10;
+    
+    if (result.type_letter) dataPoints++;
     if (result.invoice_number) dataPoints++;
-    if (result.amount_total) dataPoints++;
+    if (result.supplier?.name || result.supplier?.legal_name) dataPoints++;
+    if (result.amounts?.total) dataPoints++;
     if (result.issue_date) dataPoints++;
-
-    result.ocr_confidence = Math.min(0.95, 0.5 + (dataPoints * 0.1));
-
-    return result;
+    if (result.cae?.number) dataPoints++;
+    if (result.supplier?.cuit) dataPoints++;
+    if (result.amounts?.net) dataPoints++;
+    if (result.amounts?.taxes?.length > 0) dataPoints++;
+    if (result.due_date) dataPoints++;
+    
+    result.ocr_confidence = Math.min(0.95, dataPoints / totalPoints);
+    
+    // Si la confianza es baja, marcar para revisión
+    if (result.ocr_confidence < 0.80) {
+      result.needs_review = true;
+    }
   }
 
   private static parseDate(dateString: string): string {
@@ -297,8 +450,11 @@ export class OCRService {
         year += year < 50 ? 2000 : 1900;
       }
       
+      // Validar que sea una fecha válida
       const date = new Date(year, month - 1, day);
-      return date.toISOString().split('T')[0];
+      if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+        return date.toISOString().split('T')[0];
+      }
     }
     
     return new Date().toISOString().split('T')[0];

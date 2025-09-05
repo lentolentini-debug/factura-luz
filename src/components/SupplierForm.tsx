@@ -43,6 +43,7 @@ export const SupplierForm = ({ onClose, onSuccess }: SupplierFormProps) => {
       await createSupplier({
         name: formData.name,
         tax_id: formData.tax_id || undefined,
+        cuit: formData.tax_id || null,
         email: formData.email || undefined,
         phone: formData.phone || undefined,
         address: formData.address || undefined,
