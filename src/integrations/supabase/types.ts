@@ -14,13 +14,314 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      attachments: {
+        Row: {
+          created_at: string
+          file_name: string
+          file_size: number | null
+          file_url: string
+          id: string
+          invoice_id: string
+          mime_type: string | null
+          uploaded_by: string
+        }
+        Insert: {
+          created_at?: string
+          file_name: string
+          file_size?: number | null
+          file_url: string
+          id?: string
+          invoice_id: string
+          mime_type?: string | null
+          uploaded_by: string
+        }
+        Update: {
+          created_at?: string
+          file_name?: string
+          file_size?: number | null
+          file_url?: string
+          id?: string
+          invoice_id?: string
+          mime_type?: string | null
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attachments_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string
+          entity_type: string
+          id: string
+          payload_json: Json | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id: string
+          entity_type: string
+          id?: string
+          payload_json?: Json | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          payload_json?: Json | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      invoices: {
+        Row: {
+          amount_total: number
+          created_at: string
+          created_by: string
+          currency: string
+          due_date: string
+          id: string
+          invoice_number: string
+          issue_date: string
+          needs_review: boolean | null
+          net_amount: number | null
+          notes: string | null
+          ocr_confidence: number | null
+          source_file_url: string | null
+          status: string
+          supplier_id: string
+          tax_amount: number | null
+          updated_at: string
+        }
+        Insert: {
+          amount_total: number
+          created_at?: string
+          created_by: string
+          currency?: string
+          due_date: string
+          id?: string
+          invoice_number: string
+          issue_date: string
+          needs_review?: boolean | null
+          net_amount?: number | null
+          notes?: string | null
+          ocr_confidence?: number | null
+          source_file_url?: string | null
+          status?: string
+          supplier_id: string
+          tax_amount?: number | null
+          updated_at?: string
+        }
+        Update: {
+          amount_total?: number
+          created_at?: string
+          created_by?: string
+          currency?: string
+          due_date?: string
+          id?: string
+          invoice_number?: string
+          issue_date?: string
+          needs_review?: boolean | null
+          net_amount?: number | null
+          notes?: string | null
+          ocr_confidence?: number | null
+          source_file_url?: string | null
+          status?: string
+          supplier_id?: string
+          tax_amount?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoices_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount_paid: number
+          created_at: string
+          created_by: string
+          id: string
+          invoice_id: string
+          method: string
+          notes: string | null
+          payment_date: string
+          receipt_file_url: string | null
+          reference_number: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_paid: number
+          created_at?: string
+          created_by: string
+          id?: string
+          invoice_id: string
+          method: string
+          notes?: string | null
+          payment_date: string
+          receipt_file_url?: string | null
+          reference_number?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_paid?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          invoice_id?: string
+          method?: string
+          notes?: string | null
+          payment_date?: string
+          receipt_file_url?: string | null
+          reference_number?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          role: string | null
+          updated_at: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      reminders: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          invoice_id: string
+          message: string | null
+          reminder_date: string
+          sent: boolean | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          invoice_id: string
+          message?: string | null
+          reminder_date: string
+          sent?: boolean | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          invoice_id?: string
+          message?: string | null
+          reminder_date?: string
+          sent?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminders_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      suppliers: {
+        Row: {
+          address: string | null
+          created_at: string
+          created_by: string
+          default_currency: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          tax_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          created_by: string
+          default_currency?: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          created_by?: string
+          default_currency?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      update_overdue_invoices: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
