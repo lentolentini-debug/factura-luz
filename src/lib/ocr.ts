@@ -69,61 +69,218 @@ export class OCRService {
   }
 
   private static parseInvoiceText(text: string) {
-    const lines = text.split('\n').map(line => line.trim());
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
     let confidence = 0.8;
     
-    // Extraer datos usando regex y patrones
+    // Extraer datos usando regex y patrones mejorados
     const result: any = {
       ocr_confidence: confidence,
       currency: 'ARS'
     };
 
-    // Buscar proveedor (primera línea que parece nombre de empresa)
-    const supplierMatch = lines.find(line => 
-      line.match(/^[A-Z][A-Za-z\s]+S\.?A\.?|S\.?R\.?L\.?|Ltda\.?/i)
-    );
-    if (supplierMatch) {
-      result.supplier_name = supplierMatch;
+    // Mejorar detección de proveedor
+    const supplierPatterns = [
+      // Razones sociales argentinas
+      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+(?:S\.?A\.?|S\.?R\.?L\.?|S\.?A\.?S\.?|LTDA\.?|S\.?C\.?A\.?))/,
+      // Nombres comerciales
+      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]{3,50})/,
+      // Líneas que parecen nombres de empresa
+      /^([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)\s*(?:CUIT|RUT|RFC)/i
+    ];
+
+    for (const line of lines.slice(0, 10)) { // Buscar en las primeras 10 líneas
+      for (const pattern of supplierPatterns) {
+        const match = line.match(pattern);
+        if (match && match[1].length > 3 && match[1].length < 60) {
+          result.supplier_name = match[1].trim();
+          break;
+        }
+      }
+      if (result.supplier_name) break;
     }
 
-    // Buscar número de factura
-    const invoiceNumberMatch = text.match(/(?:factura|invoice|fc|nro?\.?\s*)[:\s]*([a-z0-9\-]+)/i);
-    if (invoiceNumberMatch) {
-      result.invoice_number = invoiceNumberMatch[1];
+    // Mejorar detección de número de factura
+    const invoicePatterns = [
+      /(?:factura|invoice|fc|fact|comprobante|nro?\.?\s*)[:\s-]*([a-z0-9\-_]+)/i,
+      /(?:^|\s)([a-z]\s*-?\s*\d{4,8}(?:\s*-\s*\d+)?)/i,
+      /(?:^|\s)(fc\s*-?\s*\d+)/i,
+      /(?:^|\s)(\d{4}-\d{8})/,
+      /(?:^|\s)(b\s*\d{4,8})/i,
+      /(?:^|\s)(a\s*\d{4,8})/i
+    ];
+
+    for (const pattern of invoicePatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.invoice_number = match[1].replace(/\s+/g, '').toUpperCase();
+        break;
+      }
     }
 
-    // Buscar fechas
-    const dateMatches = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/g);
-    if (dateMatches && dateMatches.length >= 1) {
-      const date = this.parseDate(dateMatches[0]);
-      result.issue_date = date;
+    // Mejorar detección de fechas
+    const datePatterns = [
+      /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g,
+      /(\d{2,4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/g
+    ];
+
+    const allDates: string[] = [];
+    for (const pattern of datePatterns) {
+      const matches = text.match(pattern);
+      if (matches) {
+        allDates.push(...matches);
+      }
+    }
+
+    if (allDates.length >= 1) {
+      // Tomar la primera fecha como fecha de emisión
+      const issueDate = this.parseDate(allDates[0]);
+      result.issue_date = issueDate;
       
-      if (dateMatches.length >= 2) {
-        result.due_date = this.parseDate(dateMatches[1]);
+      if (allDates.length >= 2) {
+        // Tomar la segunda fecha como vencimiento
+        result.due_date = this.parseDate(allDates[1]);
       } else {
         // Asumir 30 días de vencimiento
-        const dueDate = new Date(date);
+        const dueDate = new Date(issueDate);
         dueDate.setDate(dueDate.getDate() + 30);
         result.due_date = dueDate.toISOString().split('T')[0];
       }
     }
 
-    // Buscar montos
-    const amountMatches = text.match(/\$\s*([0-9.,]+(?:\.\d{2})?)/g);
-    if (amountMatches) {
-      const amounts = amountMatches.map(match => 
-        parseFloat(match.replace('$', '').replace(',', '').trim())
-      ).filter(amount => !isNaN(amount));
-      
-      if (amounts.length > 0) {
-        result.amount_total = Math.max(...amounts); // Tomar el monto más alto como total
-        
-        if (amounts.length > 1) {
-          result.net_amount = amounts[amounts.length - 2]; // Segundo monto más alto como neto
-          result.tax_amount = result.amount_total - result.net_amount;
+    // Mejorar detección de montos - Patrones argentinos
+    const amountPatterns = [
+      // Formato con $ y puntos como separadores de miles y coma como decimal
+      /\$\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/g,
+      // Formato con $ y comas como separadores de miles y punto como decimal
+      /\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/g,
+      // Formato sin símbolo con puntos como separadores
+      /(?:^|\s)([0-9]{1,3}(?:\.[0-9]{3})+(?:,[0-9]{2})?)\s*(?:\n|$|[^0-9])/g,
+      // Formato sin símbolo con comas como separadores
+      /(?:^|\s)([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})?)\s*(?:\n|$|[^0-9])/g,
+      // Montos simples
+      /(?:total|importe|monto|subtotal)[:\s]*\$?\s*([0-9.,]+)/gi,
+      // IVA
+      /(?:iva|impuesto)[:\s]*\$?\s*([0-9.,]+)/gi
+    ];
+
+    const amounts: number[] = [];
+    const amountTypes: { [key: number]: string } = {};
+
+    for (const pattern of amountPatterns) {
+      const matches = Array.from(text.matchAll(pattern));
+      for (const match of matches) {
+        let amountStr = match[1];
+        let amount: number;
+
+        // Determinar formato y convertir
+        if (amountStr.includes('.') && amountStr.includes(',')) {
+          // Formato argentino: 1.234.567,89
+          if (amountStr.lastIndexOf(',') > amountStr.lastIndexOf('.')) {
+            amount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.'));
+          } else {
+            // Formato americano: 1,234,567.89
+            amount = parseFloat(amountStr.replace(/,/g, ''));
+          }
+        } else if (amountStr.includes(',')) {
+          // Solo comas - podría ser separador de miles o decimal
+          const commaCount = (amountStr.match(/,/g) || []).length;
+          if (commaCount === 1 && amountStr.split(',')[1].length === 2) {
+            // Probablemente decimal: 1234,56
+            amount = parseFloat(amountStr.replace(',', '.'));
+          } else {
+            // Separador de miles: 1,234,567
+            amount = parseFloat(amountStr.replace(/,/g, ''));
+          }
+        } else if (amountStr.includes('.')) {
+          // Solo puntos
+          const dotCount = (amountStr.match(/\./g) || []).length;
+          if (dotCount === 1 && amountStr.split('.')[1].length <= 2) {
+            // Probablemente decimal: 1234.56
+            amount = parseFloat(amountStr);
+          } else {
+            // Separador de miles: 1.234.567
+            amount = parseFloat(amountStr.replace(/\./g, ''));
+          }
+        } else {
+          // Solo números
+          amount = parseFloat(amountStr);
+        }
+
+        if (!isNaN(amount) && amount > 0 && amount < 999999999) {
+          amounts.push(amount);
+          
+          // Identificar tipo de monto basado en el contexto
+          const context = match.input?.substring(Math.max(0, match.index! - 20), match.index! + match[0].length + 20).toLowerCase() || '';
+          if (context.includes('total') || context.includes('importe')) {
+            amountTypes[amount] = 'total';
+          } else if (context.includes('iva') || context.includes('impuesto')) {
+            amountTypes[amount] = 'tax';
+          } else if (context.includes('subtotal') || context.includes('neto')) {
+            amountTypes[amount] = 'net';
+          }
         }
       }
     }
+
+    if (amounts.length > 0) {
+      // Eliminar duplicados y ordenar
+      const uniqueAmounts = [...new Set(amounts)].sort((a, b) => b - a);
+      
+      // Buscar el total (generalmente el monto más alto)
+      let totalFound = false;
+      for (const amount of uniqueAmounts) {
+        if (amountTypes[amount] === 'total') {
+          result.amount_total = amount;
+          totalFound = true;
+          break;
+        }
+      }
+      
+      if (!totalFound && uniqueAmounts.length > 0) {
+        result.amount_total = uniqueAmounts[0]; // Tomar el más alto
+      }
+
+      // Buscar IVA
+      for (const amount of uniqueAmounts) {
+        if (amountTypes[amount] === 'tax') {
+          result.tax_amount = amount;
+          break;
+        }
+      }
+
+      // Buscar subtotal/neto
+      for (const amount of uniqueAmounts) {
+        if (amountTypes[amount] === 'net') {
+          result.net_amount = amount;
+          break;
+        }
+      }
+
+      // Si no encontramos neto pero tenemos total e IVA, calcularlo
+      if (!result.net_amount && result.amount_total && result.tax_amount) {
+        result.net_amount = result.amount_total - result.tax_amount;
+      }
+
+      // Si no encontramos IVA pero tenemos total y neto, calcularlo
+      if (!result.tax_amount && result.amount_total && result.net_amount) {
+        result.tax_amount = result.amount_total - result.net_amount;
+      }
+
+      // Si solo tenemos total, asumir IVA del 21%
+      if (result.amount_total && !result.net_amount && !result.tax_amount) {
+        result.net_amount = Math.round((result.amount_total / 1.21) * 100) / 100;
+        result.tax_amount = result.amount_total - result.net_amount;
+      }
+    }
+
+    // Ajustar confianza basada en datos encontrados
+    let dataPoints = 0;
+    if (result.supplier_name) dataPoints++;
+    if (result.invoice_number) dataPoints++;
+    if (result.amount_total) dataPoints++;
+    if (result.issue_date) dataPoints++;
+
+    result.ocr_confidence = Math.min(0.95, 0.5 + (dataPoints * 0.1));
 
     return result;
   }
