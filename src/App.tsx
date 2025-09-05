@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Login } from '@/pages/Login';
 import Index from '@/pages/Index';
-import { Facturas } from '@/pages/Facturas';
+
 import { Pagos } from '@/pages/Pagos';
 import { Proveedores } from '@/pages/Proveedores';
 import { CargarFactura } from '@/pages/CargarFactura';
@@ -42,7 +42,7 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<Index />} />
-        <Route path="/facturas" element={<Facturas />} />
+        
         <Route path="/pagos" element={<Pagos />} />
         <Route path="/proveedores" element={<Proveedores />} />
         <Route path="/cargar" element={<CargarFactura />} />

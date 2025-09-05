@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Layout } from '@/components/Layout';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ export const Pagos = () => {
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [processingReceipt, setProcessingReceipt] = useState(false);
   const [autoSearching, setAutoSearching] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -171,6 +172,36 @@ export const Pagos = () => {
     await processReceiptAndFindInvoice(file);
   };
 
+  // Funciones para drag & drop
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      const file = files[0];
+      if (file.type.startsWith('image/') || file.type === 'application/pdf') {
+        handleReceiptFileSelect(file);
+      } else {
+        toast({
+          title: "Tipo de archivo no válido",
+          description: "Por favor selecciona una imagen o PDF",
+          variant: "destructive",
+        });
+      }
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
   const filteredPayments = payments.filter(payment =>
     payment.reference_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     payment.method.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -286,7 +317,12 @@ export const Pagos = () => {
 
   return (
     <Layout>
-      <div className="p-8 space-y-6">
+      <div 
+        className={`p-8 space-y-6 ${isDragOver ? 'bg-primary/5' : ''}`}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+      >
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -396,10 +432,14 @@ export const Pagos = () => {
                 <Label>Comprobante de Pago (opcional)</Label>
                 <div className="space-y-3">
                   {!receiptFile ? (
-                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+                    <div className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      isDragOver 
+                        ? 'border-primary bg-primary/10' 
+                        : 'border-border hover:border-primary/50'
+                    }`}>
                       <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
                       <p className="text-sm text-muted-foreground mb-2">
-                        Sube un comprobante para buscar la factura automáticamente
+                        Arrastra tu comprobante aquí o
                       </p>
                       <input
                         ref={fileInputRef}
@@ -422,9 +462,12 @@ export const Pagos = () => {
                             {processingReceipt ? 'Procesando...' : 'Subiendo...'}
                           </>
                         ) : (
-                          'Seleccionar Comprobante'
+                          'Seleccionar archivo'
                         )}
                       </Button>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Se buscará automáticamente la factura correspondiente
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-3">

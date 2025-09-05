@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 
 const navigationItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Facturas', href: '/facturas', icon: FileText },
   { name: 'Pagos', href: '/pagos', icon: CreditCard },
   { name: 'Cargar Factura', href: '/cargar', icon: Upload },
   { name: 'Conversación', href: '/chat', icon: MessageSquare },
