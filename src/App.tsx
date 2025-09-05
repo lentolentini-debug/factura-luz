@@ -11,6 +11,7 @@ import { Proveedores } from "./pages/Proveedores";
 import { CargarFactura } from "./pages/CargarFactura";
 import { Pagos } from "./pages/Pagos";
 import { Configuracion } from "./pages/Configuracion";
+import { Backups } from "./pages/Backups";
 import { Login } from "./pages/Login";
 import { Chat } from "./pages/Chat";
 import NotFound from "./pages/NotFound";
@@ -98,7 +99,7 @@ const App = () => (
             } />
             <Route path="/backups" element={
               <ProtectedRoute>
-                <Dashboard />
+                <Backups />
               </ProtectedRoute>
             } />
             <Route path="/configuracion" element={

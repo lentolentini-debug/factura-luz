@@ -1,6 +1,7 @@
 import { Layout } from '@/components/Layout';
 import { KPICard } from '@/components/KPICard';
 import { InvoiceTable } from '@/components/InvoiceTable';
+import { QuickActions } from '@/components/QuickActions';
 import { Card } from '@/components/ui/card';
 import { 
   DollarSign, 
@@ -163,6 +164,9 @@ export const Dashboard = () => {
             </div>
           </Card>
         </div>
+
+        {/* Acciones Rápidas */}
+        <QuickActions />
 
         {/* Tabla de facturas */}
         <InvoiceTable />
