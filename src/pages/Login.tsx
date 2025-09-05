@@ -192,9 +192,9 @@ export const Login = () => {
         </form>
 
         <div className="mt-6 p-3 bg-gray-50 rounded text-xs text-gray-600">
-          <p><strong>Para probar:</strong></p>
-          <p>1. Crea una cuenta nueva con tu email</p>
-          <p>2. O usa: admin@test.com / password123</p>
+          <p><strong>Credenciales de prueba:</strong></p>
+          <p>Email: admin@test.com</p>
+          <p>Contraseña: password123</p>
         </div>
       </Card>
     </div>
