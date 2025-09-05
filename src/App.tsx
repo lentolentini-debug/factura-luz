@@ -1,69 +1,68 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./hooks/useAuth";
-import { Dashboard } from "./pages/Dashboard";
-import { Facturas } from "./pages/Facturas";
-import { Proveedores } from "./pages/Proveedores";
-import { CargarFactura } from "./pages/CargarFactura";
-import { Pagos } from "./pages/Pagos";
-import { Configuracion } from "./pages/Configuracion";
-import { Backups } from "./pages/Backups";
-import { Login } from "./pages/Login";
-import { Chat } from "./pages/Chat";
-import NotFound from "./pages/NotFound";
-
-const queryClient = new QueryClient();
-
-// Simple debugging component
-const DebugAuth = () => {
-  const { user, loading, session } = useAuth();
-  
-  console.log('🐛 Debug Auth State:', { 
-    user: user?.id, 
-    loading, 
-    hasSession: !!session 
-  });
-
-  if (loading) {
-    console.log('⏳ App is loading...');
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-        <p className="text-lg">Cargando aplicación...</p>
-        <p className="text-sm text-slate-400 mt-2">Conectando con Supabase...</p>
-      </div>
-    );
-  }
-  
-  if (!user) {
-    console.log('👤 No user logged in, showing login page');
-    return <Login />;
-  }
-  
-  console.log('✅ User logged in, showing dashboard');
-  return <Dashboard />;
-};
+import React from 'react';
 
 const App = () => {
-  console.log('🚀 App component rendering...');
+  console.log('🚀 App básica iniciando...');
   
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <AuthProvider>
-            <Routes>
-              <Route path="/*" element={<DebugAuth />} />
-            </Routes>
-          </AuthProvider>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <div style={{
+      minHeight: '100vh',
+      backgroundColor: '#1e293b',
+      color: 'white',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      fontFamily: 'Arial, sans-serif'
+    }}>
+      <h1 style={{ fontSize: '2rem', marginBottom: '20px' }}>
+        🔧 Caja Facturas - Modo Debug
+      </h1>
+      
+      <div style={{
+        backgroundColor: '#334155',
+        padding: '20px',
+        borderRadius: '8px',
+        maxWidth: '500px',
+        textAlign: 'center'
+      }}>
+        <p style={{ marginBottom: '10px' }}>
+          ✅ React está funcionando
+        </p>
+        <p style={{ marginBottom: '10px' }}>
+          ✅ El componente se está renderizando
+        </p>
+        <p style={{ marginBottom: '10px' }}>
+          🔍 Verificando conexión con Supabase...
+        </p>
+        
+        <button 
+          style={{
+            backgroundColor: '#3b82f6',
+            color: 'white',
+            border: 'none',
+            padding: '10px 20px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            marginTop: '10px'
+          }}
+          onClick={() => {
+            console.log('🔘 Botón clickeado');
+            alert('La aplicación React está funcionando correctamente!');
+          }}
+        >
+          Probar Interacción
+        </button>
+      </div>
+      
+      <div style={{
+        marginTop: '20px',
+        fontSize: '12px',
+        color: '#94a3b8'
+      }}>
+        Revisa la consola del navegador (F12) para más información
+      </div>
+    </div>
   );
 };
 
