@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Layout } from '@/components/Layout';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,23 +8,29 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Upload, FileText, Image, Loader2, CheckCircle, AlertTriangle, Edit3 } from 'lucide-react';
+import { Upload, FileText, Image, Loader2, CheckCircle, AlertTriangle, Edit3, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { OCRService } from '@/lib/ocr';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { useInvoices } from '@/hooks/useInvoices';
+import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/lib/formatters';
+import { supabase } from '@/integrations/supabase/client';
 
 export const CargarFactura = () => {
   const { suppliers, findOrCreateSupplier } = useSuppliers();
   const { createInvoice } = useInvoices();
+  const { user } = useAuth();
   
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const [ocrData, setOcrData] = useState<any>(null);
   const [editMode, setEditMode] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,8 +61,46 @@ export const CargarFactura = () => {
       setPreview(null);
     }
 
+    // Subir archivo a Supabase Storage
+    await uploadFile(selectedFile);
+    
     // Procesar automáticamente
     await processFile(selectedFile);
+  };
+
+  const uploadFile = async (file: File) => {
+    if (!user) {
+      toast.error('Debes estar autenticado para subir archivos');
+      return null;
+    }
+
+    setIsUploading(true);
+    
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('invoices')
+        .upload(fileName, file);
+
+      if (error) throw error;
+
+      // Obtener URL pública del archivo
+      const { data: { publicUrl } } = supabase.storage
+        .from('invoices')
+        .getPublicUrl(fileName);
+
+      setUploadedFileUrl(publicUrl);
+      toast.success('Archivo subido exitosamente');
+      return data.path;
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast.error('Error al subir el archivo');
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const processFile = async (file: File) => {
@@ -108,6 +152,7 @@ export const CargarFactura = () => {
         net_amount: ocrData.net_amount,
         tax_amount: ocrData.tax_amount,
         ocr_confidence: ocrData.ocr_confidence,
+        source_file_url: uploadedFileUrl,
         notes: ocrData.ocr_confidence < 0.8 ? 'Procesado con OCR - Revisar datos' : undefined,
         needs_review: ocrData.ocr_confidence < 0.8,
       };
@@ -121,6 +166,7 @@ export const CargarFactura = () => {
       setPreview(null);
       setOcrData(null);
       setEditMode(false);
+      setUploadedFileUrl(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -129,6 +175,35 @@ export const CargarFactura = () => {
       toast.error('Error al guardar la factura');
     }
   };
+
+  // Drag & Drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      await handleFileSelect(files[0]);
+    }
+  }, []);
 
   const updateOcrData = (field: string, value: any) => {
     setOcrData(prev => ({
@@ -173,9 +248,23 @@ export const CargarFactura = () => {
               <h3 className="text-lg font-semibold">1. Subir Archivo</h3>
               
               {!file ? (
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
-                  <Upload className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <h4 className="text-lg font-medium mb-2">Arrastra tu factura aquí</h4>
+                <div 
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 ${
+                    isDragOver 
+                      ? 'border-primary bg-primary/5 scale-105' 
+                      : 'border-border hover:border-primary/50'
+                  }`}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
+                  <Upload className={`w-12 h-12 mx-auto mb-4 transition-colors ${
+                    isDragOver ? 'text-primary' : 'text-muted-foreground'
+                  }`} />
+                  <h4 className="text-lg font-medium mb-2">
+                    {isDragOver ? '¡Suelta tu factura aquí!' : 'Arrastra tu factura aquí'}
+                  </h4>
                   <p className="text-muted-foreground mb-4">
                     o haz clic para seleccionar un archivo
                   </p>
@@ -188,8 +277,15 @@ export const CargarFactura = () => {
                     id="file-upload"
                   />
                   <Label htmlFor="file-upload" className="cursor-pointer">
-                    <Button variant="outline">
-                      Seleccionar archivo
+                    <Button variant="outline" disabled={isUploading}>
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Subiendo...
+                        </>
+                      ) : (
+                        'Seleccionar archivo'
+                      )}
                     </Button>
                   </Label>
                   <p className="text-xs text-muted-foreground mt-2">
@@ -209,6 +305,9 @@ export const CargarFactura = () => {
                         <p className="font-medium">{file.name}</p>
                         <p className="text-sm text-muted-foreground">
                           {(file.size / 1024 / 1024).toFixed(2)} MB
+                          {uploadedFileUrl && (
+                            <span className="ml-2 text-green-600">✓ Subido</span>
+                          )}
                         </p>
                       </div>
                     </div>
@@ -219,10 +318,11 @@ export const CargarFactura = () => {
                         setFile(null);
                         setPreview(null);
                         setOcrData(null);
+                        setUploadedFileUrl(null);
                         if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
                     >
-                      Cambiar
+                      <X className="w-4 h-4" />
                     </Button>
                   </div>
 
@@ -236,10 +336,12 @@ export const CargarFactura = () => {
                     </div>
                   )}
 
-                  {isProcessing && (
+                  {(isProcessing || isUploading) && (
                     <div className="flex items-center justify-center p-4">
                       <Loader2 className="w-6 h-6 animate-spin mr-2" />
-                      <span>Procesando con OCR...</span>
+                      <span>
+                        {isUploading ? 'Subiendo archivo...' : 'Procesando con OCR...'}
+                      </span>
                     </div>
                   )}
                 </div>
