@@ -276,18 +276,20 @@ export const CargarFactura = () => {
                     className="hidden"
                     id="file-upload"
                   />
-                  <Label htmlFor="file-upload" className="cursor-pointer">
-                    <Button variant="outline" disabled={isUploading}>
-                      {isUploading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Subiendo...
-                        </>
-                      ) : (
-                        'Seleccionar archivo'
-                      )}
-                    </Button>
-                  </Label>
+                  <Button 
+                    variant="outline" 
+                    disabled={isUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Subiendo...
+                      </>
+                    ) : (
+                      'Seleccionar archivo'
+                    )}
+                  </Button>
                   <p className="text-xs text-muted-foreground mt-2">
                     PDF, JPG, PNG hasta 10MB
                   </p>

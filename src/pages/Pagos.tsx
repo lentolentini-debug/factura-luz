@@ -1,43 +1,175 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Layout } from '@/components/Layout';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { CalendarIcon, Plus, Upload, Search, Receipt, FileText, CheckCircle } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Plus, CalendarIcon, Search, Loader2, FileText, Upload, X, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { usePayments } from '@/hooks/usePayments';
-import { useInvoices } from '@/hooks/useInvoices';
 import { formatCurrency, formatDate } from '@/lib/formatters';
-import { toast } from 'sonner';
+import { usePayments } from '@/hooks/usePayments';
+import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { OCRService } from '@/lib/ocr';
 
 export const Pagos = () => {
-  const { payments, loading, createPayment, findInvoiceForPayment } = usePayments();
-  const { fetchInvoices } = useInvoices();
-  
-  const [showForm, setShowForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [formData, setFormData] = useState({
-    invoice_id: '',
-    payment_date: new Date(),
-    amount_paid: '',
-    method: '',
-    reference_number: '',
-    notes: '',
-  });
-  
+  const [showForm, setShowForm] = useState(false);
+  const [paymentDate, setPaymentDate] = useState<Date>(new Date());
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [notes, setNotes] = useState('');
   const [invoiceSearch, setInvoiceSearch] = useState('');
-  const [suggestedInvoices, setSuggestedInvoices] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
+  const [invoiceSuggestions, setInvoiceSuggestions] = useState<any[]>([]);
+  const [searchingInvoices, setSearchingInvoices] = useState(false);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [processingReceipt, setProcessingReceipt] = useState(false);
+  const [autoSearching, setAutoSearching] = useState(false);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { payments, loading, createPayment, findInvoiceForPayment } = usePayments();
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  // Función para subir archivo de comprobante
+  const uploadReceiptFile = async (file: File) => {
+    if (!user) return null;
+
+    setUploadingReceipt(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `receipts/${user.id}/${Date.now()}.${fileExt}`;
+      
+      const { data, error } = await supabase.storage
+        .from('invoices')
+        .upload(fileName, file);
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('invoices')
+        .getPublicUrl(fileName);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading receipt:', error);
+      toast({
+        title: "Error",
+        description: "Error al subir el comprobante",
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setUploadingReceipt(false);
+    }
+  };
+
+  // Función para procesar comprobante con OCR y buscar factura automáticamente
+  const processReceiptAndFindInvoice = async (file: File) => {
+    setProcessingReceipt(true);
+    setAutoSearching(true);
+    
+    try {
+      const base64 = await OCRService.processFileToBase64(file);
+      const extractedData = await OCRService.extractInvoiceData(base64);
+      
+      // Buscar factura basada en los datos extraídos
+      const searchCriteria = {
+        invoice_number: extractedData.invoice_number,
+        supplier_name: extractedData.supplier_name,
+        amount: extractedData.amount_total,
+        date_range: extractedData.issue_date && extractedData.due_date ? {
+          start: extractedData.issue_date,
+          end: extractedData.due_date
+        } : undefined
+      };
+
+      const foundInvoices = await findInvoiceForPayment(searchCriteria);
+      
+      if (foundInvoices.length > 0) {
+        const invoice = foundInvoices[0];
+        setSelectedInvoice(invoice);
+        setInvoiceSearch(`${invoice.invoice_number} - ${invoice.supplier?.name}`);
+        setAmount(invoice.amount_total?.toString() || '');
+        
+        toast({
+          title: "Factura encontrada automáticamente",
+          description: `Se encontró la factura ${invoice.invoice_number}`,
+        });
+      } else {
+        toast({
+          title: "No se encontró factura",
+          description: "No se pudo encontrar una factura que coincida con el comprobante",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error processing receipt:', error);
+      toast({
+        title: "Error",
+        description: "Error al procesar el comprobante",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingReceipt(false);
+      setAutoSearching(false);
+    }
+  };
+
+  // Función para manejar selección de archivo de comprobante
+  const handleReceiptFileSelect = async (file: File) => {
+    if (!file) return;
+
+    // Validar tipo de archivo
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Tipo de archivo no válido",
+        description: "Solo se permiten archivos PDF, JPG y PNG",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar tamaño (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: "Archivo muy grande",
+        description: "El archivo no puede ser mayor a 10MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setReceiptFile(file);
+
+    // Crear preview para imágenes
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (e) => setReceiptPreview(e.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setReceiptPreview(null);
+    }
+
+    // Procesar automáticamente para encontrar factura
+    await processReceiptAndFindInvoice(file);
+  };
 
   const filteredPayments = payments.filter(payment =>
     payment.reference_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -48,63 +180,107 @@ export const Pagos = () => {
   const searchInvoices = async () => {
     if (!invoiceSearch.trim()) return;
 
+    setSearchingInvoices(true);
     try {
       const results = await findInvoiceForPayment({
         invoice_number: invoiceSearch,
         supplier_name: invoiceSearch,
       });
-      setSuggestedInvoices(results);
+      setInvoiceSuggestions(results);
     } catch (error) {
       console.error('Error searching invoices:', error);
-      toast.error('Error al buscar facturas');
+      toast({
+        title: "Error",
+        description: "Error al buscar facturas",
+        variant: "destructive",
+      });
+    } finally {
+      setSearchingInvoices(false);
     }
   };
 
   const selectInvoice = (invoice: any) => {
     setSelectedInvoice(invoice);
-    setFormData(prev => ({
-      ...prev,
-      invoice_id: invoice.id,
-      amount_paid: invoice.amount_total.toString(),
-    }));
-    setSuggestedInvoices([]);
-    setInvoiceSearch('');
+    setInvoiceSearch(`${invoice.invoice_number} - ${invoice.supplier?.name}`);
+    setAmount(invoice.amount_total?.toString() || '');
+    setInvoiceSuggestions([]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedInvoice || !formData.amount_paid || !formData.method) {
-      toast.error('Completa todos los campos obligatorios');
+    if (!selectedInvoice) {
+      toast({
+        title: "Error",
+        description: "Debe seleccionar una factura",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      toast({
+        title: "Error",
+        description: "Debe ingresar un monto válido",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!method) {
+      toast({
+        title: "Error",
+        description: "Debe seleccionar un método de pago",
+        variant: "destructive",
+      });
       return;
     }
 
     try {
-      await createPayment({
-        invoice_id: formData.invoice_id,
-        payment_date: formData.payment_date.toISOString().split('T')[0],
-        amount_paid: parseFloat(formData.amount_paid),
-        method: formData.method,
-        reference_number: formData.reference_number || null,
-        receipt_file_url: null,
-        notes: formData.notes || null,
+      // Subir archivo de comprobante si existe
+      let receiptFileUrl = null;
+      if (receiptFile) {
+        receiptFileUrl = await uploadReceiptFile(receiptFile);
+      }
+
+      const paymentData = {
+        invoice_id: selectedInvoice.id,
+        payment_date: paymentDate.toISOString().split('T')[0],
+        amount_paid: parseFloat(amount),
+        method,
+        reference_number: referenceNumber || undefined,
+        receipt_file_url: receiptFileUrl || undefined,
+        notes: notes || undefined,
+      };
+
+      await createPayment(paymentData);
+      
+      toast({
+        title: "Pago registrado",
+        description: "El pago ha sido registrado exitosamente",
       });
 
-      toast.success('Pago registrado exitosamente');
+      // Limpiar formulario
       setShowForm(false);
+      setAmount('');
+      setMethod('');
+      setReferenceNumber('');
+      setNotes('');
+      setInvoiceSearch('');
       setSelectedInvoice(null);
-      setFormData({
-        invoice_id: '',
-        payment_date: new Date(),
-        amount_paid: '',
-        method: '',
-        reference_number: '',
-        notes: '',
-      });
-      fetchInvoices(); // Actualizar facturas también
+      setInvoiceSuggestions([]);
+      setReceiptFile(null);
+      setReceiptPreview(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error) {
       console.error('Error creating payment:', error);
-      toast.error('Error al registrar el pago');
+      toast({
+        title: "Error",
+        description: "Error al registrar el pago",
+        variant: "destructive",
+      });
     }
   };
 
@@ -116,7 +292,7 @@ export const Pagos = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Pagos</h1>
             <p className="text-muted-foreground">
-              Gestiona los pagos de facturas
+              Registra y gestiona los pagos de facturas
             </p>
           </div>
           <Button onClick={() => setShowForm(true)}>
@@ -127,255 +303,343 @@ export const Pagos = () => {
 
         {/* Filtros */}
         <Card className="p-4">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+          <div className="flex gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por referencia, método o factura..."
+                placeholder="Buscar por número de referencia, método o factura..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
-            <Badge variant="secondary">
-              {filteredPayments.length} pago{filteredPayments.length !== 1 ? 's' : ''}
-            </Badge>
           </div>
         </Card>
 
         {/* Tabla de pagos */}
         <Card>
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-              <p className="text-muted-foreground mt-2">Cargando pagos...</p>
-            </div>
-          ) : (
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Fecha</TableHead>
-                  <TableHead>Factura</TableHead>
+                  <TableHead>N° Factura</TableHead>
                   <TableHead>Proveedor</TableHead>
                   <TableHead>Monto</TableHead>
                   <TableHead>Método</TableHead>
                   <TableHead>Referencia</TableHead>
-                  <TableHead>Estado</TableHead>
+                  <TableHead>Comprobante</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredPayments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell>
-                      {formatDate(payment.payment_date)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-medium">
-                          {(payment as any).invoice?.invoice_number}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {(payment as any).invoice?.supplier?.name}
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-semibold">
-                        {formatCurrency(payment.amount_paid)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{payment.method}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      {payment.reference_number ? (
-                        <span className="font-mono text-sm">{payment.reference_number}</span>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="default" className="bg-green-100 text-green-800">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Procesado
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredPayments.length === 0 && (
+                {loading ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8">
-                      <div className="text-muted-foreground">
-                        {searchTerm ? 'No se encontraron pagos' : 'No hay pagos registrados'}
-                      </div>
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                      <p className="text-sm text-muted-foreground mt-2">Cargando pagos...</p>
                     </TableCell>
                   </TableRow>
+                ) : filteredPayments.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8">
+                      <p className="text-sm text-muted-foreground">
+                        {searchTerm ? 'No se encontraron pagos que coincidan con la búsqueda' : 'No hay pagos registrados'}
+                      </p>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredPayments.map((payment) => (
+                    <TableRow key={payment.id}>
+                      <TableCell>{formatDate(payment.payment_date)}</TableCell>
+                      <TableCell className="font-medium">
+                        {(payment as any).invoice?.invoice_number || 'N/A'}
+                      </TableCell>
+                      <TableCell>
+                        {(payment as any).invoice?.supplier?.name || 'N/A'}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {formatCurrency(payment.amount_paid)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{payment.method}</Badge>
+                      </TableCell>
+                      <TableCell>{payment.reference_number || '-'}</TableCell>
+                      <TableCell>
+                        {payment.receipt_file_url ? (
+                          <Button variant="ghost" size="sm" asChild>
+                            <a href={payment.receipt_file_url} target="_blank" rel="noopener noreferrer">
+                              <FileText className="w-4 h-4" />
+                            </a>
+                          </Button>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
                 )}
               </TableBody>
             </Table>
-          )}
+          </div>
         </Card>
 
-        {/* Modal de nuevo pago */}
+        {/* Modal de registro de pago */}
         <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Registrar Nuevo Pago</DialogTitle>
             </DialogHeader>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Búsqueda de factura */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Comprobante de pago */}
+              <div className="space-y-2">
+                <Label>Comprobante de Pago (opcional)</Label>
+                <div className="space-y-3">
+                  {!receiptFile ? (
+                    <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
+                      <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Sube un comprobante para buscar la factura automáticamente
+                      </p>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => e.target.files?.[0] && handleReceiptFileSelect(e.target.files[0])}
+                        className="hidden"
+                        id="receipt-upload"
+                      />
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingReceipt || processingReceipt}
+                      >
+                        {uploadingReceipt || processingReceipt ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            {processingReceipt ? 'Procesando...' : 'Subiendo...'}
+                          </>
+                        ) : (
+                          'Seleccionar Comprobante'
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <FileText className="w-5 h-5 text-primary" />
+                          <div>
+                            <p className="font-medium text-sm">{receiptFile.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {(receiptFile.size / 1024 / 1024).toFixed(2)} MB
+                              {autoSearching && (
+                                <span className="ml-2 text-primary">🔍 Buscando factura...</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <Button 
+                          type="button"
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => {
+                            setReceiptFile(null);
+                            setReceiptPreview(null);
+                            if (fileInputRef.current) fileInputRef.current.value = '';
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      {receiptPreview && (
+                        <div className="border rounded-lg overflow-hidden">
+                          <img 
+                            src={receiptPreview} 
+                            alt="Preview del comprobante" 
+                            className="w-full h-32 object-contain bg-gray-50"
+                          />
+                        </div>
+                      )}
+
+                      {autoSearching && (
+                        <div className="flex items-center justify-center p-3 text-sm text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Analizando comprobante y buscando factura...
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Buscar factura */}
               <div className="space-y-2">
                 <Label>Buscar Factura *</Label>
                 <div className="flex gap-2">
                   <Input
+                    placeholder="Buscar por número de factura o proveedor..."
                     value={invoiceSearch}
                     onChange={(e) => setInvoiceSearch(e.target.value)}
-                    placeholder="Número de factura o proveedor..."
-                    className="flex-1"
+                    disabled={!!selectedInvoice}
                   />
-                  <Button type="button" onClick={searchInvoices} variant="outline">
-                    <Search className="w-4 h-4" />
+                  <Button 
+                    type="button" 
+                    variant="outline"
+                    onClick={searchInvoices}
+                    disabled={searchingInvoices || !!selectedInvoice}
+                  >
+                    {searchingInvoices ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Search className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
 
-                {/* Facturas sugeridas */}
-                {suggestedInvoices.length > 0 && (
-                  <div className="border rounded-lg p-2 max-h-40 overflow-y-auto">
-                    {suggestedInvoices.map((invoice) => (
+                {selectedInvoice ? (
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-green-800">
+                          {selectedInvoice.invoice_number} - {selectedInvoice.supplier?.name}
+                        </p>
+                        <p className="text-sm text-green-600">
+                          Monto: {formatCurrency(selectedInvoice.amount_total)}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedInvoice(null);
+                          setInvoiceSearch('');
+                          setAmount('');
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : invoiceSuggestions.length > 0 ? (
+                  <div className="border rounded-lg max-h-40 overflow-y-auto">
+                    {invoiceSuggestions.map((invoice) => (
                       <div
                         key={invoice.id}
+                        className="p-3 hover:bg-secondary cursor-pointer border-b last:border-b-0"
                         onClick={() => selectInvoice(invoice)}
-                        className="p-2 hover:bg-secondary rounded cursor-pointer"
                       >
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="font-medium">{invoice.invoice_number}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {invoice.supplier?.name}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold">{formatCurrency(invoice.amount_total)}</p>
-                            <Badge variant="secondary">{invoice.status}</Badge>
-                          </div>
-                        </div>
+                        <p className="font-medium">{invoice.invoice_number} - {invoice.supplier?.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {formatCurrency(invoice.amount_total)} • Estado: {invoice.status}
+                        </p>
                       </div>
                     ))}
                   </div>
-                )}
-
-                {/* Factura seleccionada */}
-                {selectedInvoice && (
-                  <Card className="p-3 bg-primary/5 border-primary/20">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-medium">{selectedInvoice.invoice_number}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {selectedInvoice.supplier?.name}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold">{formatCurrency(selectedInvoice.amount_total)}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Vence: {formatDate(selectedInvoice.due_date)}
-                        </p>
-                      </div>
-                    </div>
-                  </Card>
-                )}
+                ) : null}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Fecha de pago */}
-                <div className="space-y-2">
-                  <Label>Fecha de Pago *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !formData.payment_date && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.payment_date ? format(formData.payment_date, "PPP", { locale: es }) : "Selecciona fecha"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0">
-                      <Calendar
-                        mode="single"
-                        selected={formData.payment_date}
-                        onSelect={(date) => date && setFormData(prev => ({ ...prev, payment_date: date }))}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
+              {/* Fecha de pago */}
+              <div className="space-y-2">
+                <Label>Fecha de Pago *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !paymentDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {paymentDate ? format(paymentDate, "PPP", { locale: es }) : "Selecciona una fecha"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={paymentDate}
+                      onSelect={(date) => date && setPaymentDate(date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-                {/* Monto pagado */}
-                <div className="space-y-2">
-                  <Label htmlFor="amount_paid">Monto Pagado *</Label>
-                  <Input
-                    id="amount_paid"
-                    type="number"
-                    step="0.01"
-                    value={formData.amount_paid}
-                    onChange={(e) => setFormData(prev => ({ ...prev, amount_paid: e.target.value }))}
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
+              {/* Monto */}
+              <div className="space-y-2">
+                <Label>Monto Pagado *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  required
+                />
+              </div>
 
-                {/* Método de pago */}
-                <div className="space-y-2">
-                  <Label>Método de Pago *</Label>
-                  <Select value={formData.method} onValueChange={(value) => setFormData(prev => ({ ...prev, method: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona método" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="transferencia">Transferencia Bancaria</SelectItem>
-                      <SelectItem value="efectivo">Efectivo</SelectItem>
-                      <SelectItem value="cheque">Cheque</SelectItem>
-                      <SelectItem value="tarjeta">Tarjeta de Crédito</SelectItem>
-                      <SelectItem value="debito">Débito Automático</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              {/* Método de pago */}
+              <div className="space-y-2">
+                <Label>Método de Pago *</Label>
+                <Select value={method} onValueChange={setMethod}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona un método" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="efectivo">Efectivo</SelectItem>
+                    <SelectItem value="transferencia">Transferencia Bancaria</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="tarjeta">Tarjeta de Crédito/Débito</SelectItem>
+                    <SelectItem value="mercadopago">MercadoPago</SelectItem>
+                    <SelectItem value="otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-                {/* Número de referencia */}
-                <div className="space-y-2">
-                  <Label htmlFor="reference_number">Número de Referencia</Label>
-                  <Input
-                    id="reference_number"
-                    value={formData.reference_number}
-                    onChange={(e) => setFormData(prev => ({ ...prev, reference_number: e.target.value }))}
-                    placeholder="Ej: TRF-123456"
-                  />
-                </div>
+              {/* Número de referencia */}
+              <div className="space-y-2">
+                <Label>Número de Referencia</Label>
+                <Input
+                  placeholder="Número de transferencia, cheque, etc."
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                />
               </div>
 
               {/* Notas */}
               <div className="space-y-2">
-                <Label htmlFor="notes">Notas</Label>
+                <Label>Notas</Label>
                 <Textarea
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                  placeholder="Notas adicionales sobre el pago..."
-                  rows={3}
+                  placeholder="Notas adicionales..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
                 />
               </div>
 
-              {/* Botones */}
-              <div className="flex justify-end gap-3">
-                <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setShowForm(false);
+                    setReceiptFile(null);
+                    setReceiptPreview(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  className="flex-1"
+                >
                   Cancelar
                 </Button>
-                <Button type="submit" disabled={!selectedInvoice}>
+                <Button 
+                  type="submit" 
+                  className="flex-1"
+                  disabled={!selectedInvoice}
+                >
                   Registrar Pago
                 </Button>
               </div>

@@ -14,6 +14,7 @@ import {
 import { Eye, Edit, Trash2, Search, Filter, Loader2 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 import { useInvoices } from '@/hooks/useInvoices';
+import { useToast } from '@/hooks/use-toast';
 
 const statusVariants = {
   'Recibida': 'bg-accent text-accent-foreground',
@@ -24,7 +25,26 @@ const statusVariants = {
 
 export const InvoiceTable = () => {
   const [searchTerm, setSearchTerm] = useState('');
-  const { invoices, loading } = useInvoices();
+  const { invoices, loading, deleteInvoice } = useInvoices();
+  const { toast } = useToast();
+
+  const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    if (confirm(`¿Estás seguro de que quieres eliminar la factura ${invoiceNumber}?`)) {
+      try {
+        await deleteInvoice(invoiceId);
+        toast({
+          title: "Factura eliminada",
+          description: "La factura ha sido eliminada correctamente.",
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "No se pudo eliminar la factura.",
+          variant: "destructive",
+        });
+      }
+    }
+  };
 
   const filteredInvoices = invoices.filter(invoice =>
     (invoice.supplier?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -104,7 +124,12 @@ export const InvoiceTable = () => {
                       <Button variant="ghost" size="sm">
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleDeleteInvoice(invoice.id, invoice.invoice_number)}
+                        className="text-destructive hover:text-destructive"
+                      >
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
