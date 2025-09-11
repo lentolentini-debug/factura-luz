@@ -665,9 +665,14 @@ export const CargarFactura = () => {
                   >
                     {Math.round(ocrData.ocr_confidence * 100)}% confianza
                   </Badge>
-                  {ocrData.audit_log?.final_provider === 'demo' && (
-                    <Badge variant="outline" className="bg-yellow-50 text-yellow-800 border-yellow-300">
-                      🎯 Datos Demo (APIs temporalmente no disponibles)
+                  {ocrData.audit_log?.final_provider === 'simple_ocr' && (
+                    <Badge variant="outline" className="bg-orange-50 text-orange-800 border-orange-300">
+                      📄 Procesado con OCR básico
+                    </Badge>
+                  )}
+                  {ocrData.audit_log?.final_provider === 'fallback' && (
+                    <Badge variant="outline" className="bg-red-50 text-red-800 border-red-300">
+                      ⚠️ Error de procesamiento
                     </Badge>
                   )}
                 </div>

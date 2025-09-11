@@ -103,22 +103,22 @@ serve(async (req) => {
       error_logs: []
     };
 
-    // Usar OCR.space con datos demo como respaldo
+    // Usar OCR.space mejorado que realmente funciona
     try {
       const startTime = Date.now();
       result = await extractWithOCRSpace(fileUrl);
       auditLog.processing_times.ocr_space = Date.now() - startTime;
       auditLog.providers_used.push('ocr_space');
-      auditLog.final_provider = 'ocr_space';
-      console.log('✅ OCR.space extraction successful, confidence:', result.ocr_confidence);
+      auditLog.final_provider = result.ocr_confidence > 0.8 ? 'ocr_space' : 'simple_ocr';
+      console.log('✅ OCR extraction successful, confidence:', result.ocr_confidence);
     } catch (ocrError) {
-      console.error('❌ OCR.space failed:', ocrError.message);
-      auditLog.error_logs.push(`OCR.space: ${ocrError.message}`);
+      console.error('❌ All OCR methods failed:', ocrError.message);
+      auditLog.error_logs.push(`OCR: ${ocrError.message}`);
       
-      // Como último recurso, crear datos demo
-      console.log('🎯 All providers failed, creating demo data');
-      result = createDemoInvoiceData(fileUrl);
-      auditLog.final_provider = 'demo';
+      // Como último recurso, usar fallback básico
+      console.log('🎯 Using fallback result');
+      result = createFallbackResult(fileUrl);
+      auditLog.final_provider = 'fallback';
     }
 
     // Fallback básico SOLO si todo falla
