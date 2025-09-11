@@ -103,33 +103,35 @@ serve(async (req) => {
       error_logs: []
     };
 
-    // SOLO usar OpenAI - es el más preciso y confiable
-    if (provider === 'openai' || !result) {
+    // Usar directamente OCR.space mientras OpenAI tiene problemas de cuota
+    try {
+      const startTime = Date.now();
+      result = await extractWithOCRSpace(fileUrl);
+      auditLog.processing_times.ocr_space = Date.now() - startTime;
+      auditLog.providers_used.push('ocr_space');
+      auditLog.final_provider = 'ocr_space';
+      console.log('✅ OCR.space extraction successful, confidence:', result.ocr_confidence);
+    } catch (ocrError) {
+      console.error('❌ OCR.space failed:', ocrError.message);
+      auditLog.error_logs.push(`OCR.space: ${ocrError.message}`);
+      
+      // Intentar OpenAI como fallback si OCR falla
       try {
         const startTime = Date.now();
         result = await extractWithOpenAI(fileUrl);
         auditLog.processing_times.openai = Date.now() - startTime;
         auditLog.providers_used.push('openai');
         auditLog.final_provider = 'openai';
-        
-        console.log('✅ OpenAI extraction successful!');
-        console.log('📊 Confidence:', result.ocr_confidence);
-        console.log('📄 Data preview:', {
-          supplier: result.supplier?.name,
-          invoice_number: result.invoice_number,
-          total: result.amounts?.total,
-          type_letter: result.type_letter
-        });
-        
-      } catch (error) {
-        console.error('❌ OpenAI extraction failed:', error);
-        auditLog.error_logs.push(`OpenAI: ${error.message}`);
+        console.log('✅ OpenAI extraction successful as fallback!');
+      } catch (openaiError) {
+        console.error('❌ OpenAI also failed:', openaiError.message);
+        auditLog.error_logs.push(`OpenAI: ${openaiError.message}`);
       }
     }
 
-    // Fallback básico SOLO si OpenAI falla completamente
+    // Fallback básico SOLO si todo falla
     if (!result) {
-      console.log('⚠️ OpenAI failed completely, using basic fallback');
+      console.log('⚠️ All providers failed, using basic fallback');
       result = createFallbackResult(fileUrl);
       auditLog.final_provider = 'fallback';
     }
@@ -374,7 +376,7 @@ async function extractWithTesseract(fileUrl: string) {
 }
 
 function parseArgentineInvoiceText(text: string, fileUrl: string, provider: string) {
-  console.log(`Parsing text from ${provider}:`, text.substring(0, 200));
+  console.log(`🔍 Parsing text from ${provider} (${text.length} chars):`, text.substring(0, 300));
   
   const result = {
     type_letter: null,
@@ -396,40 +398,170 @@ function parseArgentineInvoiceText(text: string, fileUrl: string, provider: stri
     payment_terms: null,
     bank: { bank_name: null, branch: null, cbu: null },
     cae: { number: null, due_date: null },
-    ocr_confidence: 0.7,
+    ocr_confidence: 0.6, // OCR.space baseline confidence
     needs_review: false,
     source_file_url: fileUrl
   };
 
-  // Extraer tipo de factura
-  const typeMatch = text.match(/FACTURA\s*([ABC])/i) || text.match(/([ABC])\s*FACTURA/i) || text.match(/COD\.\s*0?([123])/i);
-  if (typeMatch) {
-    let letter = typeMatch[1].toUpperCase();
-    if (['1', '2', '3'].includes(letter)) {
-      letter = letter === '1' ? 'A' : letter === '2' ? 'B' : 'C';
+  // Extraer tipo de factura con múltiples patrones
+  const typePatterns = [
+    /FACTURA\s*([ABC])/i,
+    /([ABC])\s*FACTURA/i,
+    /COD\.?\s*0?([123])/i,
+    /TIPO\s*([ABC])/i,
+    /LETRA\s*([ABC])/i
+  ];
+  
+  for (const pattern of typePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      let letter = match[1].toUpperCase();
+      if (['1', '2', '3'].includes(letter)) {
+        letter = letter === '1' ? 'A' : letter === '2' ? 'B' : 'C';
+      }
+      result.type_letter = letter;
+      result.doc_code = letter === 'A' ? '01' : letter === 'B' ? '06' : '11';
+      console.log('✅ Found invoice type:', letter);
+      break;
     }
-    result.type_letter = letter;
-    result.doc_code = letter === 'A' ? '01' : letter === 'B' ? '06' : '11';
   }
 
-  // Extraer punto de venta y número
-  const pvMatch = text.match(/Punto\s*de\s*Venta[:\s]*([0-9]+)[\s\S]*?Comp\.?\s*Nro\.?[:\s]*([0-9]+)/i);
-  if (pvMatch) {
-    result.point_of_sale = pvMatch[1].padStart(4, '0');
-    result.invoice_number = pvMatch[2].padStart(8, '0');
-    result.comprobante_id = `${result.type_letter || 'X'}-${result.point_of_sale}-${result.invoice_number}`;
+  // Extraer punto de venta y número con múltiples patrones
+  const numberPatterns = [
+    /Punto\s*de\s*Venta[:\s]*([0-9]+)[\s\S]*?(?:Comp\.?\s*)?Nro\.?[:\s]*([0-9]+)/i,
+    /PV[:\s]*([0-9]+)[\s\S]*?N[°º]?[:\s]*([0-9]+)/i,
+    /([0-9]{3,4})[\\-\s]*([0-9]{4,8})/,
+    /N[°º]\s*([0-9]{3,4})[\\-\s]*([0-9]{4,8})/i
+  ];
+
+  for (const pattern of numberPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.point_of_sale = match[1].padStart(4, '0');
+      result.invoice_number = match[2].padStart(8, '0');
+      result.comprobante_id = `${result.type_letter || 'X'}-${result.point_of_sale}-${result.invoice_number}`;
+      console.log('✅ Found PV and number:', result.point_of_sale, result.invoice_number);
+      break;
+    }
   }
 
-  // Extraer fechas
-  const issueDateMatch = text.match(/Fecha\s*de\s*Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i);
-  if (issueDateMatch) {
-    result.issue_date = parseDate(issueDateMatch[1]);
+  // Extraer fechas con múltiples formatos
+  const datePatterns = [
+    /Fecha\s*de\s*Emisi[oó]n[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+    /Emitido[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+    /Fecha[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i
+  ];
+
+  for (const pattern of datePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.issue_date = parseDate(match[1]);
+      console.log('✅ Found issue date:', result.issue_date);
+      break;
+    }
   }
 
-  const dueDateMatch = text.match(/Fecha\s*de\s*Vto\.?\s*para\s*el\s*pago[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i);
-  if (dueDateMatch) {
-    result.due_date = parseDate(dueDateMatch[1]);
+  // Extraer fecha de vencimiento
+  const dueDatePatterns = [
+    /Vencimiento[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+    /Vto\.?\s*para\s*el\s*pago[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i,
+    /Due\s*Date[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i
+  ];
+
+  for (const pattern of dueDatePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.due_date = parseDate(match[1]);
+      console.log('✅ Found due date:', result.due_date);
+      break;
+    }
   }
+
+  // Extraer razón social del proveedor
+  const supplierPatterns = [
+    /Raz[oó]n\s*Social[:\s]*([^\n\r]+)/i,
+    /Emisor[:\s]*([^\n\r]+)/i,
+    /Empresa[:\s]*([^\n\r]+)/i,
+    /Proveedor[:\s]*([^\n\r]+)/i
+  ];
+
+  for (const pattern of supplierPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.supplier.name = match[1].trim();
+      console.log('✅ Found supplier:', result.supplier.name);
+      break;
+    }
+  }
+
+  // Extraer CUIT del proveedor
+  const cuitMatch = text.match(/CUIT[:\s]*([0-9\-]{11,13})/i);
+  if (cuitMatch) {
+    result.supplier.cuit = cuitMatch[1].replace(/\-/g, '');
+    console.log('✅ Found CUIT:', result.supplier.cuit);
+  }
+
+  // Extraer montos con múltiples patrones
+  const totalPatterns = [
+    /Total[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i,
+    /Importe\s*Total[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i,
+    /TOTAL[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i
+  ];
+
+  for (const pattern of totalPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.amounts.total = parseAmount(match[1]);
+      console.log('✅ Found total amount:', result.amounts.total);
+      break;
+    }
+  }
+
+  // Extraer monto neto
+  const netPatterns = [
+    /Neto[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i,
+    /Subtotal[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i,
+    /Gravado[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i
+  ];
+
+  for (const pattern of netPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      result.amounts.net = parseAmount(match[1]);
+      console.log('✅ Found net amount:', result.amounts.net);
+      break;
+    }
+  }
+
+  // Extraer IVA
+  const ivaMatch = text.match(/IVA\s*21%[:\s]*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})/i);
+  if (ivaMatch) {
+    const ivaAmount = parseAmount(ivaMatch[1]);
+    result.amounts.taxes = [{ type: 'IVA', rate: 21, amount: ivaAmount }];
+    console.log('✅ Found IVA:', ivaAmount);
+  }
+
+  // Extraer CAE
+  const caeMatch = text.match(/CAE\s*N[°º]?[:\s]*([0-9]+)/i);
+  if (caeMatch) {
+    result.cae.number = caeMatch[1];
+    console.log('✅ Found CAE:', result.cae.number);
+  }
+
+  // Determinar confianza basada en campos encontrados
+  let foundFields = 0;
+  if (result.type_letter) foundFields++;
+  if (result.invoice_number) foundFields++;
+  if (result.supplier.name) foundFields++;
+  if (result.amounts.total) foundFields++;
+  if (result.issue_date) foundFields++;
+
+  result.ocr_confidence = Math.min(0.9, 0.4 + (foundFields * 0.1));
+  result.needs_review = foundFields < 3 || result.ocr_confidence < 0.7;
+
+  console.log(`📊 Parsing complete - Found ${foundFields}/5 key fields, confidence: ${result.ocr_confidence}`);
+  return result;
+}
 
   // Período facturado
   const periodMatch = text.match(/Per[ií]odo\s*Facturado\s*Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\s*Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i);

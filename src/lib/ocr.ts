@@ -46,7 +46,7 @@ export class OCRService {
       const { data, error } = await supabase.functions.invoke('extract-invoice-data', {
         body: { 
           fileUrl: fileUrl,
-          provider: 'openai'
+          provider: 'ocr_space' // Usar OCR.space como proveedor principal temporalmente
         }
       });
 
