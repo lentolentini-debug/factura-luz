@@ -247,24 +247,6 @@ export const CargarFactura = () => {
           </p>
         </div>
 
-        {/* Configuración de API */}
-        <Card className="p-4">
-          <div className="space-y-2">
-            <Label htmlFor="apiKey">Google Cloud Vision API Key (opcional)</Label>
-            <Input
-              id="apiKey"
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Tu API key para OCR mejorado..."
-              className="max-w-md"
-            />
-            <p className="text-xs text-muted-foreground">
-              Sin API key se usa procesamiento local con menor precisión
-            </p>
-          </div>
-        </Card>
-
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Upload Area */}
           <Card className="p-6">
