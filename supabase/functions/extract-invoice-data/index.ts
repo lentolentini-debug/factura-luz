@@ -207,34 +207,62 @@ async function extractWithOpenAI(fileUrl: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
-          content: `Sos un extractor experto de facturas argentinas. Tu tarea es extraer datos de facturas y devolver SOLO JSON válido según el schema exacto proporcionado.
+          content: `Eres un extractor especializado en facturas argentinas del sistema AFIP. Tu tarea es analizar imágenes de facturas y extraer datos estructurados con MÁXIMA PRECISIÓN.
+
+FORMATOS ESPECÍFICOS DE FACTURAS ARGENTINAS:
+- Letra del comprobante: A, B, o C (visible en el encabezado)
+- Punto de Venta: 4 dígitos (ej: 0001, 0005)
+- Número de factura: 8 dígitos (ej: 00000123, 12345678)
+- Formato completo: A-0001-00000123 o similar
+- CUIT: 11 dígitos sin guiones (ej: 20123456789)
+- CAE: código alfanumérico de autorización AFIP
 
 INSTRUCCIONES CRÍTICAS:
-- Normalizá fechas a formato YYYY-MM-DD
-- Normalizá montos: usá punto decimal, no comas
-- currency_code siempre "ARS" para facturas argentinas
-- Si falta un dato crítico: marcá needs_review=true
-- point_of_sale debe ser 4 dígitos con ceros a la izquierda
-- invoice_number debe ser 8 dígitos con ceros a la izquierda
-- comprobante_id formato: "A-0001-00000123"
-- CUIT sin guiones, solo 11 dígitos
-- Si no podés extraer un campo, usá null
-- ocr_confidence entre 0.0 y 1.0 según tu confianza
-- needs_review=true si faltan campos críticos o confianza < 0.8
+1. FECHAS: Formato YYYY-MM-DD (ej: 2024-03-15)
+2. MONTOS: Solo números con punto decimal (ej: 1234.56, NO 1.234,56)
+3. CURRENCY: Siempre "ARS" para facturas argentinas
+4. TEXTO: Lee con cuidado cada número y texto visible
+5. CONFIANZA: Asigná ocr_confidence basado en la claridad de la imagen
+   - 0.9-1.0: Imagen muy clara, todos los datos legibles
+   - 0.7-0.8: Imagen buena, la mayoría de datos legibles
+   - 0.5-0.6: Imagen regular, algunos datos difíciles de leer
+   - 0.0-0.4: Imagen mala, muchos datos ilegibles
 
-CAMPOS CRÍTICOS para needs_review: type_letter, point_of_sale, invoice_number, amounts.total, supplier.name`
+6. NEEDS_REVIEW: true si:
+   - La imagen es borrosa o de mala calidad
+   - Faltan datos críticos (proveedor, monto, número)
+   - Hay dudas sobre la precisión de los datos
+   - ocr_confidence < 0.8
+
+BUSCA ESPECÍFICAMENTE:
+- Razón social del emisor (proveedor)
+- CUIT del emisor
+- Tipo y número de comprobante
+- Fechas de emisión y vencimiento
+- Montos: subtotal, IVA, total
+- CAE y fecha de vencimiento del CAE
+
+DEVUELVE SOLO JSON VÁLIDO según el schema.`
         },
         {
           role: 'user',
-          content: 'Extraé todos los campos posibles de esta factura argentina y devolvé el JSON según el schema exacto.',
-          image_url: {
-            url: fileUrl,
-            detail: 'high'
-          }
+          content: [
+            {
+              type: 'text',
+              text: 'Analiza esta factura argentina con máximo detalle. Extrae TODOS los campos visibles y devuelve el JSON estructurado. Presta especial atención a los números y fechas.'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: fileUrl,
+                detail: 'high'
+              }
+            }
+          ]
         }
       ],
       response_format: {
@@ -244,7 +272,7 @@ CAMPOS CRÍTICOS para needs_review: type_letter, point_of_sale, invoice_number, 
           schema: invoiceSchema
         }
       },
-      max_completion_tokens: 2000
+      max_tokens: 2000
     }),
   });
 
@@ -253,17 +281,54 @@ CAMPOS CRÍTICOS para needs_review: type_letter, point_of_sale, invoice_number, 
     throw new Error(`OpenAI API error: ${error}`);
   }
 
-  const data = await response.json();
-  let extractedData = JSON.parse(data.choices[0].message.content);
+  console.log('✅ OpenAI response received');
   
-  // Asegurar que tenga source_file_url
+  const data = await response.json();
+  console.log('🔍 Raw OpenAI response:', JSON.stringify(data, null, 2));
+  
+  if (!data.choices?.[0]?.message?.content) {
+    throw new Error('No content in OpenAI response');
+  }
+  
+  let extractedData;
+  try {
+    extractedData = JSON.parse(data.choices[0].message.content);
+    console.log('📊 Parsed extraction data:', JSON.stringify(extractedData, null, 2));
+  } catch (parseError) {
+    console.error('❌ Failed to parse OpenAI JSON response:', data.choices[0].message.content);
+    throw new Error(`Invalid JSON from OpenAI: ${parseError.message}`);
+  }
+  
+  // Validar y normalizar datos críticos
+  if (extractedData.amounts?.total) {
+    extractedData.amounts.total = Number(extractedData.amounts.total);
+  }
+  if (extractedData.amounts?.net) {
+    extractedData.amounts.net = Number(extractedData.amounts.net);
+  }
+  if (extractedData.amounts?.taxes) {
+    extractedData.amounts.taxes = extractedData.amounts.taxes.map(tax => ({
+      ...tax,
+      rate: Number(tax.rate),
+      amount: Number(tax.amount)
+    }));
+  }
+  
+  // Asegurar currency_code para facturas argentinas
+  if (!extractedData.amounts?.currency_code) {
+    if (!extractedData.amounts) extractedData.amounts = {};
+    extractedData.amounts.currency_code = 'ARS';
+  }
+  
+  // Asegurar source_file_url
   extractedData.source_file_url = fileUrl;
   
-  // Generar comprobante_id si no existe
+  // Generar comprobante_id si no existe pero tenemos los componentes
   if (!extractedData.comprobante_id && extractedData.type_letter && extractedData.point_of_sale && extractedData.invoice_number) {
     extractedData.comprobante_id = `${extractedData.type_letter}-${extractedData.point_of_sale}-${extractedData.invoice_number}`;
   }
 
+  console.log('✅ Final processed data:', JSON.stringify(extractedData, null, 2));
   return extractedData;
 }
 
@@ -508,25 +573,36 @@ function createFallbackResult(fileUrl: string) {
 }
 
 function validateAndNormalize(result: any) {
+  console.log('🔍 Validating and normalizing result:', JSON.stringify(result, null, 2));
+  
   // Verificar campos críticos
   const criticalFields = ['type_letter', 'point_of_sale', 'invoice_number', 'amounts.total', 'supplier.name'];
   let missingCritical = false;
+  const missingFields = [];
 
   if (!result.type_letter || !result.point_of_sale || !result.invoice_number) {
     missingCritical = true;
+    if (!result.type_letter) missingFields.push('type_letter');
+    if (!result.point_of_sale) missingFields.push('point_of_sale');
+    if (!result.invoice_number) missingFields.push('invoice_number');
   }
   
   if (!result.amounts?.total || result.amounts.total <= 0) {
     missingCritical = true;
+    missingFields.push('amounts.total');
   }
   
   if (!result.supplier?.name) {
     missingCritical = true;
+    missingFields.push('supplier.name');
   }
+
+  console.log('📊 Critical fields check:', { missingCritical, missingFields, confidence: result.ocr_confidence });
 
   // Marcar needs_review si faltan campos críticos o confianza baja
   if (missingCritical || result.ocr_confidence < 0.8) {
     result.needs_review = true;
+    console.log('⚠️ Marked for review:', { missingCritical, lowConfidence: result.ocr_confidence < 0.8 });
   }
 
   // Validar consistencia de montos
@@ -534,8 +610,16 @@ function validateAndNormalize(result: any) {
     const totalTaxes = result.amounts.taxes.reduce((sum: number, tax: any) => sum + tax.amount, 0);
     const calculatedTotal = result.amounts.net + totalTaxes;
     
+    console.log('💰 Amount validation:', { 
+      declared_total: result.amounts.total, 
+      calculated_total: calculatedTotal, 
+      net: result.amounts.net, 
+      taxes: totalTaxes 
+    });
+    
     if (Math.abs(calculatedTotal - result.amounts.total) > 1) {
       result.needs_review = true;
+      console.log('⚠️ Amount inconsistency detected - marked for review');
     }
   }
 
@@ -543,5 +627,11 @@ function validateAndNormalize(result: any) {
   if (!result.amounts) result.amounts = {};
   if (!result.amounts.currency_code) result.amounts.currency_code = "ARS";
 
+  // Normalizar números para evitar strings
+  if (result.amounts.total) result.amounts.total = Number(result.amounts.total);
+  if (result.amounts.net) result.amounts.net = Number(result.amounts.net);
+  if (result.ocr_confidence) result.ocr_confidence = Number(result.ocr_confidence);
+
+  console.log('✅ Validation complete:', JSON.stringify(result, null, 2));
   return result;
 }
