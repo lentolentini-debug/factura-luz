@@ -645,6 +645,157 @@ export const CargarFactura = () => {
             </Card>
           )}
         </div>
+
+        {/* Resumen de Datos Importantes */}
+        {ocrData && (
+          <Card className="mt-6 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-blue-900">📊 Resumen de Datos Importantes</h3>
+                <div className="flex items-center gap-2">
+                  {ocrData.saved && (
+                    <Badge variant="default" className="bg-green-600">
+                      <CheckCircle className="w-3 h-3 mr-1" />
+                      Guardada
+                    </Badge>
+                  )}
+                  <Badge 
+                    variant={ocrData.ocr_confidence >= 0.8 ? "default" : "secondary"}
+                    className="bg-blue-600"
+                  >
+                    {Math.round(ocrData.ocr_confidence * 100)}% confianza
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* Proveedor */}
+                <div className="bg-white p-4 rounded-lg border border-blue-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                      <span className="text-blue-600 font-semibold text-sm">P</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">Proveedor</h4>
+                  </div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {ocrData.supplier_name || 'No especificado'}
+                  </p>
+                  {ocrData.supplier_cuit && (
+                    <p className="text-sm text-gray-600">CUIT: {ocrData.supplier_cuit}</p>
+                  )}
+                </div>
+
+                {/* Monto Total */}
+                <div className="bg-white p-4 rounded-lg border border-green-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                      <span className="text-green-600 font-semibold text-sm">$</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">Monto Total</h4>
+                  </div>
+                  <p className="text-xl font-bold text-green-600">
+                    {ocrData.amount_total ? formatCurrency(ocrData.amount_total) : 'No especificado'}
+                  </p>
+                  <p className="text-sm text-gray-600">{ocrData.currency || 'ARS'}</p>
+                </div>
+
+                {/* Número de Factura */}
+                <div className="bg-white p-4 rounded-lg border border-purple-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                      <span className="text-purple-600 font-semibold text-sm">#</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">N° Factura</h4>
+                  </div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {ocrData.invoice_number || 'No especificado'}
+                  </p>
+                  {ocrData.type_letter && (
+                    <p className="text-sm text-gray-600">Tipo: {ocrData.type_letter}</p>
+                  )}
+                </div>
+
+                {/* Fecha de Emisión */}
+                <div className="bg-white p-4 rounded-lg border border-orange-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                      <span className="text-orange-600 font-semibold text-sm">📅</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">Fecha Emisión</h4>
+                  </div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {ocrData.issue_date ? new Date(ocrData.issue_date).toLocaleDateString('es-AR') : 'No especificada'}
+                  </p>
+                </div>
+
+                {/* Fecha de Vencimiento */}
+                <div className="bg-white p-4 rounded-lg border border-red-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                      <span className="text-red-600 font-semibold text-sm">⏰</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">Vencimiento</h4>
+                  </div>
+                  <p className="text-lg font-bold text-gray-900">
+                    {ocrData.due_date ? new Date(ocrData.due_date).toLocaleDateString('es-AR') : 'No especificada'}
+                  </p>
+                  {ocrData.due_date && (
+                    <p className={`text-sm ${
+                      new Date(ocrData.due_date) < new Date() ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {new Date(ocrData.due_date) < new Date() ? 'Vencida' : 'Vigente'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Estado de Revisión */}
+                <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                      <span className="text-gray-600 font-semibold text-sm">✓</span>
+                    </div>
+                    <h4 className="font-semibold text-gray-700">Estado</h4>
+                  </div>
+                  <p className={`text-lg font-bold ${
+                    ocrData.needs_review ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {ocrData.needs_review ? 'Requiere Revisión' : 'Validada'}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {ocrData.audit_log?.final_provider ? `Procesada con: ${ocrData.audit_log.final_provider.toUpperCase()}` : 'OCR'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Información Adicional */}
+              {(ocrData.cae_number || ocrData.net_amount || ocrData.tax_amount) && (
+                <div className="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+                  <h4 className="font-semibold text-gray-700 mb-3">Información Adicional:</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    {ocrData.cae_number && (
+                      <div>
+                        <span className="text-gray-600">CAE:</span>
+                        <span className="ml-2 font-medium">{ocrData.cae_number}</span>
+                      </div>
+                    )}
+                    {ocrData.net_amount && (
+                      <div>
+                        <span className="text-gray-600">Monto Neto:</span>
+                        <span className="ml-2 font-medium">{formatCurrency(ocrData.net_amount)}</span>
+                      </div>
+                    )}
+                    {ocrData.tax_amount && (
+                      <div>
+                        <span className="text-gray-600">Impuestos:</span>
+                        <span className="ml-2 font-medium">{formatCurrency(ocrData.tax_amount)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
+        )}
       </div>
     </Layout>
   );
