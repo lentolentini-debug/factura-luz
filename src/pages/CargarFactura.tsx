@@ -104,7 +104,10 @@ export const CargarFactura = () => {
   };
 
   const processFile = async (file: File) => {
+    console.log('🚀 Starting processFile with:', { fileName: file.name, fileSize: file.size });
+    
     if (!uploadedFileUrl) {
+      console.error('❌ No uploadedFileUrl available');
       toast.error('Primero debe subirse el archivo');
       return;
     }
@@ -112,9 +115,11 @@ export const CargarFactura = () => {
     setIsProcessing(true);
     
     try {
+      console.log('📄 Processing file with URL:', uploadedFileUrl);
       toast.info('Procesando archivo con OpenAI + fallbacks...');
       
       const extractedData = await OCRService.extractInvoiceDataFromFile(uploadedFileUrl);
+      console.log('✅ OCR extraction completed:', extractedData);
       
       // Mapear datos al formato esperado por el componente
       const mappedData = {
@@ -138,6 +143,7 @@ export const CargarFactura = () => {
         service_period: extractedData.service_period
       };
       
+      console.log('📝 Mapped OCR data:', mappedData);
       setOcrData(mappedData);
       
       if (extractedData.ocr_confidence >= 0.8) {
@@ -156,12 +162,15 @@ export const CargarFactura = () => {
           extractedData.amounts?.total && 
           extractedData.amounts.total > 0) {
         
+        console.log('💾 Auto-saving invoice with high confidence');
         toast.info('Guardando factura automáticamente...');
         await autoSaveInvoice(mappedData);
+      } else {
+        console.log('⚠️ Not auto-saving due to low confidence or missing data');
       }
       
     } catch (error) {
-      console.error('Error processing file:', error);
+      console.error('❌ Error processing file:', error);
       toast.error('Error al procesar el archivo. Revisa los datos manualmente.');
     } finally {
       setIsProcessing(false);
@@ -308,10 +317,13 @@ export const CargarFactura = () => {
       <div className="p-8 space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Cargar Factura</h1>
-          <p className="text-muted-foreground">
-            Sube una imagen o PDF de la factura para extraer datos automáticamente
-          </p>
+            <h1 className="text-3xl font-bold text-foreground">Cargar Factura</h1>
+            <p className="text-muted-foreground">
+              Sube una imagen o PDF de la factura para extraer datos automáticamente con OpenAI
+            </p>
+            <div className="text-xs text-blue-600 font-mono">
+              DEBUG: Página CargarFactura.tsx cargada correctamente
+            </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

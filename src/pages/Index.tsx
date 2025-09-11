@@ -3,13 +3,15 @@ import { KPICard } from '@/components/KPICard';
 import { InvoiceTable } from '@/components/InvoiceTable';
 import { QuickActions } from '@/components/QuickActions';
 import { Card } from '@/components/ui/card';
+import { Link } from 'react-router-dom';
 import { 
   DollarSign, 
   FileText, 
   AlertTriangle, 
   CheckCircle,
   TrendingUp,
-  Calendar
+  Calendar,
+  Upload
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 import { useInvoices } from '@/hooks/useInvoices';
@@ -168,6 +170,26 @@ const Index = () => {
 
         {/* Acciones Rápidas */}
         <QuickActions />
+
+        {/* Botón destacado para cargar facturas */}
+        <Card className="shadow-card bg-gradient-to-r from-primary/10 to-accent/10 border-primary/20">
+          <div className="p-6 text-center">
+            <Upload className="w-12 h-12 text-primary mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-foreground mb-2">
+              ¡Nueva función! Carga Inteligente de Facturas
+            </h3>
+            <p className="text-muted-foreground mb-4">
+              Procesamiento automático con OpenAI + fallbacks (OCR.space y Tesseract)
+            </p>
+            <Link 
+              to="/cargar" 
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 rounded-lg font-medium hover:bg-primary/90 transition-all duration-200"
+            >
+              <Upload className="w-5 h-5" />
+              Cargar Factura Ahora
+            </Link>
+          </div>
+        </Card>
 
         {/* Tabla de facturas */}
         <InvoiceTable />
