@@ -117,7 +117,7 @@ export const CargarFactura = () => {
       const extractedData = await OCRService.extractInvoiceDataFromFile(uploadedFileUrl);
       
       // Mapear datos al formato esperado por el componente
-      setOcrData({
+      const mappedData = {
         supplier_name: extractedData.supplier?.name,
         invoice_number: extractedData.invoice_number,
         issue_date: extractedData.issue_date,
@@ -132,8 +132,13 @@ export const CargarFactura = () => {
         supplier_cuit: extractedData.supplier?.cuit,
         cae_number: extractedData.cae?.number,
         cae_due_date: extractedData.cae?.due_date,
-        audit_log: extractedData.audit_log
-      });
+        audit_log: extractedData.audit_log,
+        type_letter: extractedData.type_letter,
+        point_of_sale: extractedData.point_of_sale,
+        service_period: extractedData.service_period
+      };
+      
+      setOcrData(mappedData);
       
       if (extractedData.ocr_confidence >= 0.8) {
         toast.success(`Datos extraídos con alta confianza (${Math.round(extractedData.ocr_confidence * 100)}%)`);
@@ -144,6 +149,17 @@ export const CargarFactura = () => {
         toast.warning(`Datos extraídos con baja confianza (${Math.round(extractedData.ocr_confidence * 100)}%). Revisa antes de guardar.`);
         setEditMode(true);
       }
+
+      // Auto-guardar si los datos críticos están presentes y la confianza es alta
+      if (extractedData.ocr_confidence >= 0.8 && 
+          extractedData.supplier?.name && 
+          extractedData.amounts?.total && 
+          extractedData.amounts.total > 0) {
+        
+        toast.info('Guardando factura automáticamente...');
+        await autoSaveInvoice(mappedData);
+      }
+      
     } catch (error) {
       console.error('Error processing file:', error);
       toast.error('Error al procesar el archivo. Revisa los datos manualmente.');
@@ -152,10 +168,61 @@ export const CargarFactura = () => {
     }
   };
 
+  const autoSaveInvoice = async (data: any) => {
+    try {
+      // Buscar o crear proveedor
+      let supplier;
+      if (data.supplier_name) {
+        supplier = await findOrCreateSupplier(data.supplier_name);
+      } else {
+        throw new Error('Nombre de proveedor requerido');
+      }
+
+      // Crear factura automáticamente
+      const invoiceData = {
+        supplier_id: supplier.id,
+        invoice_number: data.invoice_number || `AUTO-${Date.now()}`,
+        issue_date: data.issue_date || new Date().toISOString().split('T')[0],
+        due_date: data.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        amount_total: data.amount_total,
+        currency: data.currency || 'ARS',
+        net_amount: data.net_amount,
+        tax_amount: data.tax_amount,
+        ocr_confidence: data.ocr_confidence,
+        source_file_url: uploadedFileUrl,
+        notes: `Procesado automáticamente con ${data.audit_log?.final_provider || 'OCR'}`,
+        needs_review: data.needs_review || false,
+        type_letter: data.type_letter,
+        point_of_sale: data.point_of_sale,
+        cae_number: data.cae_number,
+        cae_due_date: data.cae_due_date,
+        service_period_from: data.service_period?.from,
+        service_period_to: data.service_period?.to
+      };
+
+      const savedInvoice = await createInvoice(invoiceData);
+      
+      toast.success('Factura guardada automáticamente');
+      
+      // Marcar como guardado
+      setOcrData(prev => ({ ...prev, saved: true, savedInvoice }));
+      
+    } catch (error) {
+      console.error('Error auto-saving invoice:', error);
+      toast.error('Error al guardar automáticamente. Puedes guardar manualmente.');
+    }
+  };
+
   const handleSaveInvoice = async () => {
     if (!ocrData) return;
 
     try {
+      // Si ya está guardada, no hacer nada
+      if (ocrData.saved) {
+        toast.info('La factura ya está guardada');
+        return;
+      }
+
       // Buscar o crear proveedor
       let supplier;
       if (ocrData.supplier_name) {
@@ -168,7 +235,7 @@ export const CargarFactura = () => {
       // Crear factura
       const invoiceData = {
         supplier_id: supplier.id,
-        invoice_number: ocrData.invoice_number || `FC-${Date.now()}`,
+        invoice_number: ocrData.invoice_number || `MANUAL-${Date.now()}`,
         issue_date: ocrData.issue_date || new Date().toISOString().split('T')[0],
         due_date: ocrData.due_date || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         amount_total: ocrData.amount_total || 0,
@@ -177,23 +244,23 @@ export const CargarFactura = () => {
         tax_amount: ocrData.tax_amount,
         ocr_confidence: ocrData.ocr_confidence,
         source_file_url: uploadedFileUrl,
-        notes: ocrData.ocr_confidence < 0.8 ? 'Procesado con OCR - Revisar datos' : undefined,
-        needs_review: ocrData.ocr_confidence < 0.8,
+        notes: editMode ? 'Datos revisados manualmente' : undefined,
+        needs_review: ocrData.needs_review || false,
+        type_letter: ocrData.type_letter,
+        point_of_sale: ocrData.point_of_sale,
+        cae_number: ocrData.cae_number,
+        cae_due_date: ocrData.cae_due_date,
+        service_period_from: ocrData.service_period?.from,
+        service_period_to: ocrData.service_period?.to
       };
 
-      await createInvoice(invoiceData);
+      const savedInvoice = await createInvoice(invoiceData);
       
       toast.success('Factura creada exitosamente');
       
-      // Limpiar formulario
-      setFile(null);
-      setPreview(null);
-      setOcrData(null);
-      setEditMode(false);
-      setUploadedFileUrl(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      // Marcar como guardado
+      setOcrData(prev => ({ ...prev, saved: true, savedInvoice }));
+      
     } catch (error) {
       console.error('Error saving invoice:', error);
       toast.error('Error al guardar la factura');
@@ -375,6 +442,12 @@ export const CargarFactura = () => {
                       )}
                       {Math.round(ocrData.ocr_confidence * 100)}% confianza
                     </Badge>
+                    {ocrData.saved && (
+                      <Badge variant="default" className="bg-green-600">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Guardada
+                      </Badge>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -430,15 +503,21 @@ export const CargarFactura = () => {
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
                         <span className="text-muted-foreground">Proveedor:</span>
                         <p className="font-medium">{ocrData.supplier_name || 'No detectado'}</p>
+                        {ocrData.supplier_cuit && (
+                          <p className="text-xs text-muted-foreground">CUIT: {ocrData.supplier_cuit}</p>
+                        )}
                       </div>
                       <div>
                         <span className="text-muted-foreground">Número:</span>
                         <p className="font-medium">{ocrData.invoice_number || 'No detectado'}</p>
+                        {ocrData.comprobante_id && (
+                          <p className="text-xs text-muted-foreground">ID: {ocrData.comprobante_id}</p>
+                        )}
                       </div>
                       <div>
                         <span className="text-muted-foreground">Emisión:</span>
@@ -449,29 +528,89 @@ export const CargarFactura = () => {
                         <p className="font-medium">{ocrData.due_date || 'No detectado'}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Total:</span>
-                        <p className="font-medium text-lg">
-                          {ocrData.amount_total ? formatCurrency(ocrData.amount_total) : 'No detectado'}
+                        <span className="text-muted-foreground">Neto:</span>
+                        <p className="font-medium">
+                          {ocrData.net_amount ? formatCurrency(ocrData.net_amount, ocrData.currency) : 'No detectado'}
                         </p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Moneda:</span>
-                        <p className="font-medium">{ocrData.currency || 'ARS'}</p>
+                        <span className="text-muted-foreground">Impuestos:</span>
+                        <p className="font-medium">
+                          {ocrData.tax_amount ? formatCurrency(ocrData.tax_amount, ocrData.currency) : 'No detectado'}
+                        </p>
                       </div>
+                      <div className="col-span-2">
+                        <span className="text-muted-foreground">Total:</span>
+                        <p className="font-medium text-xl text-primary">
+                          {ocrData.amount_total ? formatCurrency(ocrData.amount_total, ocrData.currency) : 'No detectado'}
+                        </p>
+                      </div>
+                      {ocrData.cae_number && (
+                        <div>
+                          <span className="text-muted-foreground">CAE:</span>
+                          <p className="font-medium">{ocrData.cae_number}</p>
+                          {ocrData.cae_due_date && (
+                            <p className="text-xs text-muted-foreground">Vence: {ocrData.cae_due_date}</p>
+                          )}
+                        </div>
+                      )}
+                      {ocrData.audit_log?.final_provider && (
+                        <div>
+                          <span className="text-muted-foreground">Procesado con:</span>
+                          <p className="font-medium uppercase">{ocrData.audit_log.final_provider}</p>
+                        </div>
+                      )}
                     </div>
+                    
+                    {ocrData.service_period?.from && ocrData.service_period?.to && (
+                      <div className="mt-4 p-3 bg-secondary/50 rounded-lg">
+                        <span className="text-sm text-muted-foreground">Período de servicio:</span>
+                        <p className="font-medium">
+                          {ocrData.service_period.from} a {ocrData.service_period.to}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <Separator />
 
                 <div className="flex gap-3">
+                  {!ocrData.saved ? (
+                    <Button 
+                      onClick={handleSaveInvoice}
+                      className="flex-1"
+                      disabled={!ocrData.supplier_name || !ocrData.amount_total}
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Guardar Factura
+                    </Button>
+                  ) : (
+                    <div className="flex-1 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center justify-center text-green-700">
+                        <CheckCircle className="w-5 h-5 mr-2" />
+                        Factura guardada exitosamente
+                      </div>
+                      {ocrData.savedInvoice && (
+                        <p className="text-sm text-green-600 text-center mt-1">
+                          ID: {ocrData.savedInvoice.id?.substring(0, 8)}...
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
                   <Button 
-                    onClick={handleSaveInvoice}
-                    className="flex-1"
-                    disabled={!ocrData.supplier_name || !ocrData.amount_total}
+                    variant="outline"
+                    onClick={() => {
+                      setFile(null);
+                      setPreview(null);
+                      setOcrData(null);
+                      setEditMode(false);
+                      setUploadedFileUrl(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
                   >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Crear Factura
+                    Limpiar
                   </Button>
                 </div>
               </div>
