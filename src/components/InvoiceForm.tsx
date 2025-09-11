@@ -13,8 +13,10 @@ import { es } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useSuppliers } from '@/hooks/useSuppliers';
 import { useInvoices } from '@/hooks/useInvoices';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { OCRService } from '@/lib/ocr';
+import { supabase } from '@/integrations/supabase/client';
 
 interface InvoiceFormProps {
   onClose: () => void;
@@ -24,6 +26,7 @@ interface InvoiceFormProps {
 export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
   const { suppliers, loading: suppliersLoading } = useSuppliers();
   const { createInvoice } = useInvoices();
+  const { user } = useAuth();
   
   const [formData, setFormData] = useState({
     supplier_id: '',
@@ -59,13 +62,31 @@ export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
       
       setFile(selectedFile);
       
-      // Procesar OCR automáticamente
+      // Subir archivo primero
       setIsProcessingOCR(true);
       try {
-        const base64 = await OCRService.processFileToBase64(selectedFile);
-        console.log('Processing file with OCR...');
+        // Subir a Supabase Storage para obtener URL
+        if (!user) {
+          toast.error('Debes estar autenticado para subir archivos');
+          return;
+        }
+
+        const fileExt = selectedFile.name.split('.').pop();
+        const fileName = `${user.id}/${Date.now()}.${fileExt}`;
         
-        const extractedData = await OCRService.extractInvoiceData(base64);
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('invoices')
+          .upload(fileName, selectedFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('invoices')
+          .getPublicUrl(fileName);
+
+        console.log('Processing file with OpenAI + fallbacks...');
+        
+        const extractedData = await OCRService.extractInvoiceDataFromFile(publicUrl);
         console.log('OCR extracted data:', extractedData);
         
         setOcrData(extractedData);
@@ -99,9 +120,16 @@ export const InvoiceForm = ({ onClose, onSuccess }: InvoiceFormProps) => {
         setShowExtractedData(true);
         
         if (extractedData.needs_review) {
-          toast.warning('Algunos datos requieren revisión manual. Por favor verifica la información extraída.');
+          toast.warning(`Algunos datos requieren revisión manual (${Math.round(extractedData.ocr_confidence * 100)}% confianza)`);
         } else {
-          toast.success('Datos extraídos automáticamente de la factura');
+          toast.success(`Datos extraídos exitosamente (${Math.round(extractedData.ocr_confidence * 100)}% confianza)`);
+        }
+        
+        // Mostrar proveedor usado si está disponible
+        if (extractedData.audit_log?.final_provider) {
+          setTimeout(() => {
+            toast.info(`Procesado con: ${extractedData.audit_log.final_provider.toUpperCase()}`);
+          }, 1500);
         }
         
       } catch (error) {

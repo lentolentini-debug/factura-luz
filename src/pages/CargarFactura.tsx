@@ -104,25 +104,49 @@ export const CargarFactura = () => {
   };
 
   const processFile = async (file: File) => {
+    if (!uploadedFileUrl) {
+      toast.error('Primero debe subirse el archivo');
+      return;
+    }
+    
     setIsProcessing(true);
     
     try {
-      toast.info('Procesando archivo con OCR...');
+      toast.info('Procesando archivo con OpenAI + fallbacks...');
       
-      const base64 = await OCRService.processFileToBase64(file);
-      const extractedData = await OCRService.extractInvoiceData(base64, apiKey || undefined);
+      const extractedData = await OCRService.extractInvoiceDataFromFile(uploadedFileUrl);
       
-      setOcrData(extractedData);
+      // Mapear datos al formato esperado por el componente
+      setOcrData({
+        supplier_name: extractedData.supplier?.name,
+        invoice_number: extractedData.invoice_number,
+        issue_date: extractedData.issue_date,
+        due_date: extractedData.due_date,
+        amount_total: extractedData.amounts?.total,
+        currency: extractedData.amounts?.currency_code || 'ARS',
+        net_amount: extractedData.amounts?.net,
+        tax_amount: extractedData.amounts?.taxes?.reduce((sum, tax) => sum + tax.amount, 0) || 0,
+        ocr_confidence: extractedData.ocr_confidence,
+        needs_review: extractedData.needs_review,
+        comprobante_id: extractedData.comprobante_id,
+        supplier_cuit: extractedData.supplier?.cuit,
+        cae_number: extractedData.cae?.number,
+        cae_due_date: extractedData.cae?.due_date,
+        audit_log: extractedData.audit_log
+      });
       
       if (extractedData.ocr_confidence >= 0.8) {
-        toast.success('Datos extraídos con alta confianza');
+        toast.success(`Datos extraídos con alta confianza (${Math.round(extractedData.ocr_confidence * 100)}%)`);
+        if (extractedData.audit_log?.final_provider) {
+          toast.info(`Procesado con: ${extractedData.audit_log.final_provider.toUpperCase()}`);
+        }
       } else {
-        toast.warning('Datos extraídos con baja confianza. Revisa antes de guardar.');
+        toast.warning(`Datos extraídos con baja confianza (${Math.round(extractedData.ocr_confidence * 100)}%). Revisa antes de guardar.`);
         setEditMode(true);
       }
     } catch (error) {
       console.error('Error processing file:', error);
-      toast.error('Error al procesar el archivo');
+      toast.error('Error al procesar el archivo. Revisa los datos manualmente.');
     } finally {
       setIsProcessing(false);
     }
