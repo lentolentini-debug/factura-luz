@@ -548,21 +548,6 @@ function parseArgentineInvoiceText(text: string, fileUrl: string, provider: stri
     console.log('✅ Found CAE:', result.cae.number);
   }
 
-  // Determinar confianza basada en campos encontrados
-  let foundFields = 0;
-  if (result.type_letter) foundFields++;
-  if (result.invoice_number) foundFields++;
-  if (result.supplier.name) foundFields++;
-  if (result.amounts.total) foundFields++;
-  if (result.issue_date) foundFields++;
-
-  result.ocr_confidence = Math.min(0.9, 0.4 + (foundFields * 0.1));
-  result.needs_review = foundFields < 3 || result.ocr_confidence < 0.7;
-
-  console.log(`📊 Parsing complete - Found ${foundFields}/5 key fields, confidence: ${result.ocr_confidence}`);
-  return result;
-}
-
   // Período facturado
   const periodMatch = text.match(/Per[ií]odo\s*Facturado\s*Desde[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})\s*Hasta[:\s]*([0-9]{1,2}[\/\-][0-9]{1,2}[\/\-][0-9]{2,4})/i);
   if (periodMatch) {
@@ -570,13 +555,13 @@ function parseArgentineInvoiceText(text: string, fileUrl: string, provider: stri
     result.service_period.to = parseDate(periodMatch[2]);
   }
 
-  // Extraer proveedor
+  // Extraer proveedor adicional
   const supplierMatch = text.match(/Raz[oó]n\s*Social[:\s]*([A-ZÁÉÍÓÚ][A-Za-záéíóúñ\s&.-]+)/i);
   if (supplierMatch) {
     result.supplier.name = supplierMatch[1].trim();
   }
 
-  // Extraer CUIT
+  // Extraer CUIT adicional
   const cuitMatches = Array.from(text.matchAll(/(?:CUIT|C\.U\.I\.T\.)[:\s]*([0-9]{2}[-\s]?[0-9]{8}[-\s]?[0-9])/gi));
   if (cuitMatches.length > 0) {
     result.supplier.cuit = cuitMatches[0][1].replace(/[-\s]/g, '');
@@ -585,7 +570,7 @@ function parseArgentineInvoiceText(text: string, fileUrl: string, provider: stri
     }
   }
 
-  // Extraer montos
+  // Extraer montos adicionales
   const netMatch = text.match(/Importe\s*Neto\s*Gravado[:\s]*\$?\s*([0-9\.\s]+,?\d*)/i);
   if (netMatch) {
     result.amounts.net = parseAmount(netMatch[1]);
@@ -610,24 +595,27 @@ function parseArgentineInvoiceText(text: string, fileUrl: string, provider: stri
     }
   }
 
-  // Extraer CAE
-  const caeMatch = text.match(/CAE\s*N[°º][:\s]*([0-9]+)/i);
-  if (caeMatch) {
-    result.cae.number = caeMatch[1];
-  }
-
+  // Extraer CAE fecha de vencimiento
   const caeDueMatch = text.match(/Fecha\s*de\s*Vto\.?\s*(?:de\s*CAE)?[:\s]*([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{4})/i);
   if (caeDueMatch) {
     result.cae.due_date = parseDate(caeDueMatch[1]);
   }
 
-  // Ajustar confianza según provider
-  if (provider === 'tesseract') {
-    result.ocr_confidence = 0.6; // Menor confianza para Tesseract
-  }
+  // Determinar confianza basada en campos encontrados
+  let foundFields = 0;
+  if (result.type_letter) foundFields++;
+  if (result.invoice_number) foundFields++;
+  if (result.supplier.name) foundFields++;
+  if (result.amounts.total) foundFields++;
+  if (result.issue_date) foundFields++;
 
+  result.ocr_confidence = Math.min(0.9, 0.4 + (foundFields * 0.1));
+  result.needs_review = foundFields < 3 || result.ocr_confidence < 0.7;
+
+  console.log(`📊 Parsing complete - Found ${foundFields}/5 key fields, confidence: ${result.ocr_confidence}`);
   return result;
 }
+
 
 function parseDate(dateStr: string): string {
   // Convertir DD/MM/YYYY a YYYY-MM-DD
