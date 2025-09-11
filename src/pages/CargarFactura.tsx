@@ -665,6 +665,11 @@ export const CargarFactura = () => {
                   >
                     {Math.round(ocrData.ocr_confidence * 100)}% confianza
                   </Badge>
+                  {ocrData.audit_log?.final_provider === 'demo' && (
+                    <Badge variant="outline" className="bg-yellow-50 text-yellow-800 border-yellow-300">
+                      🎯 Datos Demo (APIs temporalmente no disponibles)
+                    </Badge>
+                  )}
                 </div>
               </div>
 
