@@ -103,7 +103,7 @@ serve(async (req) => {
       error_logs: []
     };
 
-    // Intentar con OpenAI primero
+    // SOLO usar OpenAI - es el más preciso y confiable
     if (provider === 'openai' || !result) {
       try {
         const startTime = Date.now();
@@ -111,56 +111,27 @@ serve(async (req) => {
         auditLog.processing_times.openai = Date.now() - startTime;
         auditLog.providers_used.push('openai');
         auditLog.final_provider = 'openai';
-        console.log('OpenAI extraction successful, confidence:', result.ocr_confidence);
+        
+        console.log('✅ OpenAI extraction successful!');
+        console.log('📊 Confidence:', result.ocr_confidence);
+        console.log('📄 Data preview:', {
+          supplier: result.supplier?.name,
+          invoice_number: result.invoice_number,
+          total: result.amounts?.total,
+          type_letter: result.type_letter
+        });
+        
       } catch (error) {
-        console.error('OpenAI extraction failed:', error);
+        console.error('❌ OpenAI extraction failed:', error);
         auditLog.error_logs.push(`OpenAI: ${error.message}`);
       }
     }
 
-    // Fallback a OCR.space si OpenAI falla o tiene baja confianza
-    if (!result || result.ocr_confidence < 0.8) {
-      try {
-        const startTime = Date.now();
-        const ocrSpaceResult = await extractWithOCRSpace(fileUrl);
-        auditLog.processing_times.ocr_space = Date.now() - startTime;
-        auditLog.providers_used.push('ocr_space');
-        
-        if (!result || ocrSpaceResult.ocr_confidence > result.ocr_confidence) {
-          result = ocrSpaceResult;
-          auditLog.final_provider = 'ocr_space';
-          console.log('OCR.space extraction used, confidence:', result.ocr_confidence);
-        }
-      } catch (error) {
-        console.error('OCR.space extraction failed:', error);
-        auditLog.error_logs.push(`OCR.space: ${error.message}`);
-      }
-    }
-
-    // Fallback a Tesseract si aún no hay resultado o baja confianza
-    if (!result || result.ocr_confidence < 0.6) {
-      try {
-        const startTime = Date.now();
-        const tesseractResult = await extractWithTesseract(fileUrl);
-        auditLog.processing_times.tesseract = Date.now() - startTime;
-        auditLog.providers_used.push('tesseract');
-        
-        if (!result || tesseractResult.ocr_confidence > result.ocr_confidence) {
-          result = tesseractResult;
-          auditLog.final_provider = 'tesseract';
-          console.log('Tesseract extraction used, confidence:', result.ocr_confidence);
-        }
-      } catch (error) {
-        console.error('Tesseract extraction failed:', error);
-        auditLog.error_logs.push(`Tesseract: ${error.message}`);
-      }
-    }
-
-    // Si no hay resultado, crear uno básico para persistir
+    // Fallback básico SOLO si OpenAI falla completamente
     if (!result) {
+      console.log('⚠️ OpenAI failed completely, using basic fallback');
       result = createFallbackResult(fileUrl);
       auditLog.final_provider = 'fallback';
-      console.log('Using fallback result due to all providers failing');
     }
 
     // Validar y normalizar resultado final
@@ -211,49 +182,54 @@ async function extractWithOpenAI(fileUrl: string) {
       messages: [
         {
           role: 'system',
-          content: `Eres un extractor especializado en facturas argentinas del sistema AFIP. Tu tarea es analizar imágenes de facturas y extraer datos estructurados con MÁXIMA PRECISIÓN.
+          content: `Eres un extractor especializado en facturas argentinas del sistema AFIP. Analiza CUIDADOSAMENTE cada imagen de factura que recibas y extrae los datos ESPECÍFICOS de ESA factura.
+
+IMPORTANTE: Cada imagen es DIFERENTE. NO uses datos de ejemplos anteriores. Analiza SOLO lo que ves en la imagen actual.
 
 FORMATOS ESPECÍFICOS DE FACTURAS ARGENTINAS:
-- Letra del comprobante: A, B, o C (visible en el encabezado)
+- Letra del comprobante: A, B, o C (buscar en el encabezado)
 - Punto de Venta: 4 dígitos (ej: 0001, 0005)
 - Número de factura: 8 dígitos (ej: 00000123, 12345678)
-- Formato completo: A-0001-00000123 o similar
 - CUIT: 11 dígitos sin guiones (ej: 20123456789)
 - CAE: código alfanumérico de autorización AFIP
 
-INSTRUCCIONES CRÍTICAS:
-1. FECHAS: Formato YYYY-MM-DD (ej: 2024-03-15)
-2. MONTOS: Solo números con punto decimal (ej: 1234.56, NO 1.234,56)
-3. CURRENCY: Siempre "ARS" para facturas argentinas
-4. TEXTO: Lee con cuidado cada número y texto visible
-5. CONFIANZA: Asigná ocr_confidence basado en la claridad de la imagen
-   - 0.9-1.0: Imagen muy clara, todos los datos legibles
-   - 0.7-0.8: Imagen buena, la mayoría de datos legibles
-   - 0.5-0.6: Imagen regular, algunos datos difíciles de leer
-   - 0.0-0.4: Imagen mala, muchos datos ilegibles
+PROCESO DE ANÁLISIS:
+1. Lee TODOS los textos visibles en la imagen
+2. Identifica la razón social del proveedor (empresa que emite)
+3. Busca el CUIT del proveedor
+4. Encuentra el tipo de comprobante (A, B, C)
+5. Localiza punto de venta y número de factura
+6. Identifica fechas de emisión y vencimiento
+7. Encuentra montos: subtotal, IVA, total
+8. Busca CAE si está presente
 
-6. NEEDS_REVIEW: true si:
-   - La imagen es borrosa o de mala calidad
-   - Faltan datos críticos (proveedor, monto, número)
-   - Hay dudas sobre la precisión de los datos
-   - ocr_confidence < 0.8
+CALIDAD Y CONFIANZA:
+- ocr_confidence: 0.9+ si la imagen es muy clara
+- ocr_confidence: 0.7-0.8 si es legible pero con algunos desafíos
+- ocr_confidence: 0.5-0.6 si la imagen tiene problemas de calidad
+- needs_review: true si faltan datos críticos o hay dudas
 
-BUSCA ESPECÍFICAMENTE:
-- Razón social del emisor (proveedor)
-- CUIT del emisor
-- Tipo y número de comprobante
-- Fechas de emisión y vencimiento
-- Montos: subtotal, IVA, total
-- CAE y fecha de vencimiento del CAE
-
-DEVUELVE SOLO JSON VÁLIDO según el schema.`
+DEVUELVE SOLO JSON VÁLIDO con los datos ESPECÍFICOS de esta factura.`
         },
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: 'Analiza esta factura argentina con máximo detalle. Extrae TODOS los campos visibles y devuelve el JSON estructurado. Presta especial atención a los números y fechas.'
+              text: `Analiza ESPECÍFICAMENTE esta factura argentina. Extrae ÚNICAMENTE los datos visibles en esta imagen. 
+
+IMPORTANTE: Esta es una factura NUEVA y DIFERENTE. No uses datos de facturas anteriores. Analiza con precisión cada campo visible.
+
+Campos a extraer si están visibles:
+- Razón social del proveedor
+- CUIT del proveedor  
+- Tipo de comprobante (A, B, C)
+- Punto de venta y número
+- Fechas de emisión y vencimiento
+- Montos (neto, IVA, total)
+- CAE y su vencimiento
+
+Si un campo no es claramente visible, usa null. Asigna confianza según la claridad de la imagen.`
             },
             {
               type: 'image_url',
@@ -366,27 +342,35 @@ async function extractWithOCRSpace(fileUrl: string) {
 async function extractWithTesseract(fileUrl: string) {
   console.log('Starting Tesseract extraction for:', fileUrl);
   
-  // Para Tesseract, simulamos el procesamiento ya que no podemos ejecutar Tesseract directamente
-  // En producción esto requeriría un contenedor con Tesseract instalado
+  // Tesseract no está disponible en el entorno edge function
+  // Devolvemos un resultado básico que indique que no se pudo procesar
+  console.log('⚠️ Tesseract not available in edge function environment');
   
-  // Simulamos texto extraído de factura argentina típica para demo
-  const simulatedText = `
-    FACTURA A COD. 01
-    Punto de Venta: 0003 Comp. Nro: 00003526
-    Fecha de Emisión: 01/08/2025
-    Razón Social: EMPRESA DEMO S.A.
-    CUIT: 30714385824
-    Período Facturado Desde: 01/08/2025 Hasta: 31/08/2025
-    Fecha de Vto. para el pago: 15/08/2025
-    SERVICIOS PROFESIONALES
-    Importe Neto Gravado: $ 375.000,00
-    IVA 21%: $ 78.750,00
-    Importe Total: $ 453.750,00
-    CAE N°: 75314579648345
-    Fecha de Vto. de CAE: 11/08/2025
-  `;
-  
-  return parseArgentineInvoiceText(simulatedText, fileUrl, 'tesseract');
+  return {
+    type_letter: null,
+    doc_code: null,
+    point_of_sale: null,
+    invoice_number: null,
+    comprobante_id: null,
+    issue_date: null,
+    service_period: { from: null, to: null },
+    due_date: null,
+    supplier: { name: null, cuit: null },
+    customer: { name: null, cuit: null },
+    amounts: {
+      net: null,
+      taxes: [],
+      total: null,
+      currency_code: "ARS"
+    },
+    payment_terms: null,
+    bank: { bank_name: null, branch: null, cbu: null },
+    cae: { number: null, due_date: null },
+    ocr_confidence: 0.1, // Muy baja confianza para indicar que no se procesó realmente
+    needs_review: true,
+    source_file_url: fileUrl,
+    error: 'Tesseract not available in edge environment'
+  };
 }
 
 function parseArgentineInvoiceText(text: string, fileUrl: string, provider: string) {
