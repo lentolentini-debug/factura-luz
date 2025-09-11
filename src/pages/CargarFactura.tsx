@@ -316,15 +316,12 @@ export const CargarFactura = () => {
     <Layout>
       <div className="p-8 space-y-6">
         {/* Header */}
-        <div>
+          <div>
             <h1 className="text-3xl font-bold text-foreground">Cargar Factura</h1>
             <p className="text-muted-foreground">
               Sube una imagen o PDF de la factura para extraer datos automáticamente con OpenAI
             </p>
-            <div className="text-xs text-blue-600 font-mono">
-              DEBUG: Página CargarFactura.tsx cargada correctamente
-            </div>
-        </div>
+          </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Upload Area */}
@@ -435,6 +432,25 @@ export const CargarFactura = () => {
               )}
             </div>
           </Card>
+
+          {/* Manual Process Button */}
+          {file && uploadedFileUrl && !ocrData && !isProcessing && (
+            <Card className="p-4 bg-blue-50 border-blue-200">
+              <div className="text-center space-y-3">
+                <p className="text-sm text-blue-800">
+                  ¿No se procesó automáticamente? Usa el botón manual:
+                </p>
+                <Button 
+                  onClick={() => processFile(file)}
+                  disabled={isProcessing}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
+                >
+                  <Loader2 className="w-4 h-4 mr-2" />
+                  🚀 Procesar con OpenAI + Fallbacks
+                </Button>
+              </div>
+            </Card>
+          )}
 
           {/* Datos Extraídos */}
           {ocrData && (

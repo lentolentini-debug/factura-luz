@@ -41,7 +41,7 @@ export class OCRService {
     audit_log?: any;
   }> {
     try {
-      console.log('Extracting invoice data from file URL:', fileUrl);
+      console.log('🔥 Extracting invoice data from file URL:', fileUrl);
       
       const { data, error } = await supabase.functions.invoke('extract-invoice-data', {
         body: { 
@@ -51,14 +51,14 @@ export class OCRService {
       });
 
       if (error) {
-        console.error('Error invoking extract-invoice-data function:', error);
+        console.error('❌ Error invoking extract-invoice-data function:', error);
         throw new Error(`Extraction failed: ${error.message}`);
       }
 
-      console.log('Extraction result:', data);
+      console.log('✅ Extraction result:', data);
       return data;
     } catch (error) {
-      console.error('Error in extractInvoiceDataFromFile:', error);
+      console.error('❌ Error in extractInvoiceDataFromFile:', error);
       
       // Fallback básico si la función falla completamente
       return {
@@ -83,7 +83,8 @@ export class OCRService {
         cae: { number: undefined, due_date: undefined },
         ocr_confidence: 0.0,
         needs_review: true,
-        source_file_url: fileUrl
+        source_file_url: fileUrl,
+        audit_log: { error: error.message, provider: 'fallback' }
       };
     }
   }
